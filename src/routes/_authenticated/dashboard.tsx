@@ -47,9 +47,9 @@ function Dashboard() {
 /* ---------- Market Pulse ---------- */
 function MarketPulseCard() {
   const fn = useServerFn(marketPulse);
-  const q = useQuery({
+  const q = useQuery<any>({
     queryKey: ["marketPulse"],
-    queryFn: () => fn(),
+    queryFn: () => fn() as any,
     refetchInterval: 60_000,
   });
 

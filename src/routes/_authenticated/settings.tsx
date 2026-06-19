@@ -16,10 +16,9 @@ function SettingsPage() {
   const getFn = useServerFn(getSettings);
   const saveFn = useServerFn(saveSettings);
 
-  const q = useQuery({ queryKey: ["settings"], queryFn: () => getFn() });
-  const m = useMutation({
-    mutationFn: (data: { gemini_api_key?: string; helius_rpc_url?: string }) =>
-      saveFn({ data }),
+  const q = useQuery<any>({ queryKey: ["settings"], queryFn: () => getFn() as any });
+  const m = useMutation<any, Error, { gemini_api_key?: string; helius_rpc_url?: string }>({
+    mutationFn: (data) => saveFn({ data }) as any,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["settings"] }),
   });
 
