@@ -1,4 +1,5 @@
-import { createFileRoute, useServerFn } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ShieldCheck, ScanSearch, FileSearch, Activity, Sparkles } from "lucide-react";
@@ -72,7 +73,7 @@ function MarketPulseCard() {
                 </tr>
               </thead>
               <tbody>
-                {q.data.trending.map((t) => (
+                {q.data.trending.map((t: any) => (
                   <tr key={t.id} className="border-t border-white/5">
                     <td className="py-2 px-2 flex items-center gap-2">
                       {t.image ? <img src={t.image} alt="" className="h-5 w-5 rounded-full" /> : null}
