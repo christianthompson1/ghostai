@@ -112,7 +112,11 @@ export const saveSettings = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) => {
     const { supabase, userId } = context;
-    const payload: Record<string, unknown> = { user_id: userId };
+    const payload: {
+      user_id: string;
+      gemini_api_key?: string;
+      helius_rpc_url?: string;
+    } = { user_id: userId };
     if (data.gemini_api_key) payload.gemini_api_key = data.gemini_api_key;
     if (data.helius_rpc_url) payload.helius_rpc_url = data.helius_rpc_url;
     const { error } = await supabase.from("app_settings").upsert(payload, {
