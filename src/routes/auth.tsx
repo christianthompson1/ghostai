@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import logo from "@/assets/ghost-ai-logo.asset.json";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -48,17 +49,15 @@ function AuthPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-4">
-      <div className="w-full max-w-md glass-panel p-8 flex flex-col gap-6">
+    <main className="min-h-screen flex items-center justify-center p-4 bg-background">
+      <div className="w-full max-w-md surface-card p-8 flex flex-col gap-6">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-14 w-14 rounded-2xl glass-panel animate-pulse-glow flex items-center justify-center">
-            <span className="neon-text text-2xl font-bold">S</span>
-          </div>
+          <img src={logo.url} alt="GHOST AI" className="h-16 w-16 rounded-2xl object-cover shadow-sm" />
           <h1 className="text-2xl font-bold tracking-tight">
-            <span className="neon-text">Solana</span> Command Center
+            GHOST <span className="sky-text">AI</span>
           </h1>
           <p className="text-sm text-muted-foreground text-center">
-            AI-powered security audits, transaction debugging & market pulse.
+            Solana security audits, transaction debugging & market pulse.
           </p>
         </div>
 

@@ -12,7 +12,7 @@ import {
 } from "@/lib/solana.functions";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
-  head: () => ({ meta: [{ title: "Dashboard · Solana Command Center" }] }),
+  head: () => ({ meta: [{ title: "Dashboard · GHOST AI" }] }),
   component: Dashboard,
 });
 
@@ -21,13 +21,13 @@ function Dashboard() {
     <div className="flex flex-col gap-6 sm:gap-8">
       <header className="flex flex-col gap-2">
         <span className="pill pill-cyan w-fit">
-          <Sparkles className="h-3 w-3" /> Liquid Glass · v1
+          <Sparkles className="h-3 w-3" /> GHOST AI · v1
         </span>
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">
-          Your <span className="neon-text">Solana</span> mission control.
+          Your <span className="sky-text">Solana</span> mission control.
         </h1>
         <p className="text-muted-foreground max-w-2xl">
-          Audit contracts, decode transactions, scan tokens, and track the market — all powered by
+          Audit contracts, decode transactions, scan tokens, and track the market — powered by
           live Helius data and Gemini AI, called only from secure server functions.
         </p>
       </header>
@@ -83,7 +83,7 @@ function MarketPulseCard() {
                     <td className="py-2 px-2 text-right font-mono">${fmtPrice(t.price)}</td>
                     <td
                       className={`py-2 px-2 text-right font-mono ${
-                        (t.change24h ?? 0) >= 0 ? "text-[color:var(--neon-cyan)]" : "text-[color:var(--neon-magenta)]"
+                        (t.change24h ?? 0) >= 0 ? "text-[color:var(--sky)]" : "text-[color:var(--destructive)]"
                       }`}
                     >
                       {(t.change24h ?? 0).toFixed(2)}%
