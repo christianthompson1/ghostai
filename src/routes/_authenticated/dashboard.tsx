@@ -106,7 +106,7 @@ function MarketPulseCard() {
 function AuditorCard() {
   const fn = useServerFn(auditContract);
   const [address, setAddress] = useState("");
-  const m = useMutation({ mutationFn: (a: string) => fn({ data: { address: a } }) });
+  const m = useMutation<any, Error, string>({ mutationFn: (a) => fn({ data: { address: a } }) as any });
 
   return (
     <GlassCard title="AI Security Auditor" icon={<ShieldCheck className="h-4 w-4" />} accent="cyan">
@@ -143,7 +143,7 @@ function AuditorCard() {
 function DecoderCard() {
   const fn = useServerFn(decodeTransaction);
   const [sig, setSig] = useState("");
-  const m = useMutation({ mutationFn: (s: string) => fn({ data: { signature: s } }) });
+  const m = useMutation<any, Error, string>({ mutationFn: (s) => fn({ data: { signature: s } }) as any });
 
   return (
     <GlassCard title="Transaction Decoder" icon={<FileSearch className="h-4 w-4" />} accent="magenta">
@@ -189,7 +189,7 @@ function DecoderCard() {
 function TokenInsightCard() {
   const fn = useServerFn(tokenInsight);
   const [address, setAddress] = useState("");
-  const m = useMutation({ mutationFn: (a: string) => fn({ data: { address: a } }) });
+  const m = useMutation<any, Error, string>({ mutationFn: (a) => fn({ data: { address: a } }) as any });
 
   return (
     <GlassCard title="Token Insight Scanner" icon={<ScanSearch className="h-4 w-4" />} accent="magenta">
