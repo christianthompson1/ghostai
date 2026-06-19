@@ -7,7 +7,7 @@ import { GlassCard, Spinner, ErrorBanner } from "@/components/GlassCard";
 import { getSettings, saveSettings } from "@/lib/solana.functions";
 
 export const Route = createFileRoute("/_authenticated/settings")({
-  head: () => ({ meta: [{ title: "Settings · Solana Command Center" }] }),
+  head: () => ({ meta: [{ title: "Settings · GHOST AI" }] }),
   component: SettingsPage,
 });
 

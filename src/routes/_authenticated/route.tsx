@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, redirect, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { LayoutDashboard, Settings, LogOut } from "lucide-react";
+import logo from "@/assets/ghost-ai-logo.asset.json";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -27,15 +28,13 @@ function Shell() {
   ] as const;
 
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-30 backdrop-blur-xl bg-background/40 border-b border-white/5">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-30 bg-background/85 backdrop-blur-md border-b border-border">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
           <Link to="/dashboard" className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-xl glass-panel flex items-center justify-center" style={{ padding: 0 }}>
-              <span className="neon-text font-bold">S</span>
-            </div>
-            <span className="font-semibold tracking-tight hidden sm:inline">
-              <span className="neon-text">Solana</span> Command Center
+            <img src={logo.url} alt="GHOST AI" className="h-8 w-8 rounded-lg object-cover" />
+            <span className="font-semibold tracking-tight text-base">
+              GHOST <span className="sky-text">AI</span>
             </span>
           </Link>
           <nav className="flex items-center gap-1.5">
@@ -46,10 +45,10 @@ function Shell() {
                 <Link
                   key={it.to}
                   to={it.to}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm transition border ${
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition border ${
                     active
-                      ? "bg-white/10 border-white/20 text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground hover:bg-white/5"
+                      ? "bg-accent border-[color:var(--sky)]/30 text-accent-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted"
                   }`}
                 >
                   <Icon className="h-4 w-4" />
