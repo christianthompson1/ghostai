@@ -14,29 +14,64 @@ export type Database = {
   }
   public: {
     Tables: {
-      app_settings: {
+      conversations: {
         Row: {
           created_at: string
-          gemini_api_key: string | null
-          helius_rpc_url: string | null
+          id: string
+          title: string
           updated_at: string
           user_id: string
         }
         Insert: {
           created_at?: string
-          gemini_api_key?: string | null
-          helius_rpc_url?: string | null
+          id?: string
+          title?: string
           updated_at?: string
           user_id: string
         }
         Update: {
           created_at?: string
-          gemini_api_key?: string | null
-          helius_rpc_url?: string | null
+          id?: string
+          title?: string
           updated_at?: string
           user_id?: string
         }
         Relationships: []
+      }
+      messages: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          id: string
+          parts: Json
+          role: string
+          user_id: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          id?: string
+          parts?: Json
+          role: string
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          parts?: Json
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
