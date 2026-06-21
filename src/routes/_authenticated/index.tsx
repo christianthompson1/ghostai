@@ -42,9 +42,9 @@ function ChatPage() {
   }
 
   return (
-    <div className="h-screen w-full flex overflow-hidden">
+    <div className="h-screen w-full flex overflow-hidden p-2 sm:p-4 gap-3 bg-[var(--background)]">
       {/* Desktop sidebar */}
-      <div className="hidden lg:block w-72 shrink-0 border-r border-border">
+      <div className="hidden lg:block w-72 shrink-0 glass rounded-2xl overflow-hidden">
         <Sidebar
           conversations={chat.conversations}
           activeId={chat.activeId}
@@ -60,8 +60,8 @@ function ChatPage() {
       {/* Mobile drawer */}
       {sidebarOpen ? (
         <div className="fixed inset-0 z-40 lg:hidden">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setSidebarOpen(false)} />
-          <div className="absolute inset-y-0 left-0 w-72 max-w-[85%]">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
+          <div className="absolute inset-y-2 left-2 w-72 max-w-[85%] glass rounded-2xl overflow-hidden">
             <Sidebar
               conversations={chat.conversations}
               activeId={chat.activeId}
@@ -77,8 +77,9 @@ function ChatPage() {
         </div>
       ) : null}
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="lg:hidden flex items-center gap-2 p-3 border-b border-border">
+      {/* Chat console — focal liquid-glass surface */}
+      <main className="flex-1 flex flex-col min-w-0 glass rounded-2xl overflow-hidden relative">
+        <header className="lg:hidden flex items-center gap-2 p-3 border-b border-white/10">
           <button onClick={() => setSidebarOpen(true)} className="btn-ghost" aria-label="Open menu">
             <Menu className="h-5 w-5" />
           </button>
@@ -87,7 +88,7 @@ function ChatPage() {
 
         <ChatFeed messages={chat.messages} pending={chat.pending} />
         <Composer value={input} onChange={setInput} onSend={handleSend} disabled={chat.pending} />
-      </div>
+      </main>
     </div>
   );
 }
