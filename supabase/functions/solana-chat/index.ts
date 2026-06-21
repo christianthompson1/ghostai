@@ -1,12 +1,27 @@
 // deno-lint-ignore-file no-explicit-any
 import { corsHeaders } from "../_shared/cors.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
 const HELIUS_RPC_URL = Deno.env.get("HELIUS_RPC_URL")!;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!;
 
-const BASE58 = /[1-9A-HJ-NP-Za-km-z]/;
+const MAX_MESSAGE_LEN = 4000;
+const MAX_HISTORY = 20;
+const MAX_HISTORY_CONTENT_LEN = 2000;
+
 const ADDR_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
 const SIG_RE = /\b[1-9A-HJ-NP-Za-km-z]{64,88}\b/;
+
+class ClientError extends Error {
+  status: number;
+  constructor(message: string, status = 400) { super(message); this.status = status; }
+}
+
+function logErr(scope: string, e: unknown) {
+  console.error(`[solana-chat:${scope}]`, e instanceof Error ? e.stack ?? e.message : e);
+}
 
 async function rpc(method: string, params: any[]) {
   const r = await fetch(HELIUS_RPC_URL, {
@@ -36,13 +51,16 @@ async function gemini(prompt: string, system?: string, model = "gemini-2.5-flash
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(`Gemini ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const txt = await r.text();
+    logErr("gemini", `${r.status} ${txt.slice(0, 500)}`);
+    throw new Error("AI model unavailable");
+  }
   const j = await r.json();
   return j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("\n") ?? "";
 }
 
 async function tokenIntel(address: string) {
-  const apiKey = heliusApiKey();
   const [asset, largest, supply] = await Promise.all([
     fetch(HELIUS_RPC_URL, {
       method: "POST",
@@ -76,7 +94,7 @@ async function tokenIntel(address: string) {
   const summary = await gemini(
     `Briefly summarize on-chain safety in 2-3 sentences. Token: ${meta.name ?? "Unknown"} (${meta.symbol ?? "?"}). Risk: ${risk} (${score}/100). Top10 holders own ${concentration.toFixed(1)}%, top wallet ${topHolderPct.toFixed(1)}%. Mint authority ${mintAuthority ? "ACTIVE" : "revoked"}. Freeze authority ${freezeAuthority ? "ACTIVE" : "revoked"}.`,
     "You are a concise Solana security auditor. No hype, no disclaimers."
-  ).catch(() => "");
+  ).catch((e) => { logErr("intel-summary", e); return ""; });
 
   return {
     type: "token_intel",
@@ -97,7 +115,6 @@ async function tokenIntel(address: string) {
 }
 
 async function priceChart(address: string | null, days: 7 | 30) {
-  // Try contract endpoint, fallback to SOL
   let url = address
     ? `https://api.coingecko.com/api/v3/coins/solana/contract/${address}/market_chart?vs_currency=usd&days=${days}`
     : `https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=${days}`;
@@ -105,7 +122,7 @@ async function priceChart(address: string | null, days: 7 | 30) {
   if (!r.ok && address) {
     r = await fetch(`https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=${days}`);
   }
-  if (!r.ok) throw new Error(`Price data unavailable (${r.status})`);
+  if (!r.ok) throw new Error("Price data unavailable");
   const j = await r.json();
   const prices: [number, number][] = j.prices ?? [];
   return {
@@ -125,7 +142,7 @@ async function txDecode(signature: string) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ transactions: [signature] }),
   });
-  if (!r.ok) throw new Error(`Helius tx ${r.status}`);
+  if (!r.ok) throw new Error("Transaction lookup unavailable");
   const arr = await r.json();
   const tx = arr[0];
   if (!tx) throw new Error("Transaction not found");
@@ -133,7 +150,7 @@ async function txDecode(signature: string) {
   const explanation = await gemini(
     `Explain this Solana transaction in plain English. Status: ${tx.transactionError ? "FAILED" : "SUCCESS"}. Type: ${tx.type}. Source: ${tx.source}. Fee: ${tx.fee} lamports. Description: ${tx.description ?? "n/a"}. ${tx.transactionError ? `Error: ${JSON.stringify(tx.transactionError)}` : ""} Instructions: ${JSON.stringify(tx.instructions?.slice(0, 6) ?? [])}`,
     "You are a Solana protocol expert. Give 3-5 sentences explaining what happened and why (if it failed)."
-  ).catch(() => "Explanation unavailable.");
+  ).catch((e) => { logErr("tx-explain", e); return "Explanation unavailable."; });
 
   return {
     type: "tx_decode",
@@ -165,7 +182,7 @@ async function marketPulse() {
   const summary = await gemini(
     `Write 3 concise sentences on the current Solana market pulse based on this data. No hype, no advice. Data: ${JSON.stringify(movers.slice(0, 6))} Epoch: ${JSON.stringify(epoch)}`,
     "You are a Solana analyst."
-  ).catch(() => "Market summary unavailable.");
+  ).catch((e) => { logErr("pulse", e); return "Market summary unavailable."; });
   return { type: "market_pulse", movers, epoch, summary };
 }
 
@@ -183,61 +200,101 @@ function classify(text: string): { kind: string; address?: string; days?: 7 | 30
   return { kind: "chat" };
 }
 
+function validatePayload(raw: any): { message: string; history: { role: string; content: string }[] } {
+  if (!raw || typeof raw !== "object") throw new ClientError("Invalid request body");
+  const { message, history } = raw;
+  if (typeof message !== "string") throw new ClientError("Field 'message' must be a string");
+  const trimmed = message.trim();
+  if (!trimmed) throw new ClientError("Message is empty");
+  if (trimmed.length > MAX_MESSAGE_LEN) throw new ClientError(`Message exceeds ${MAX_MESSAGE_LEN} characters`);
+
+  let safeHistory: { role: string; content: string }[] = [];
+  if (history !== undefined && history !== null) {
+    if (!Array.isArray(history)) throw new ClientError("Field 'history' must be an array");
+    if (history.length > MAX_HISTORY) throw new ClientError(`History exceeds ${MAX_HISTORY} entries`);
+    safeHistory = history.slice(-MAX_HISTORY).map((h: any, i: number) => {
+      if (!h || typeof h !== "object") throw new ClientError(`History[${i}] invalid`);
+      const role = h.role === "assistant" || h.role === "user" || h.role === "system" ? h.role : null;
+      if (!role) throw new ClientError(`History[${i}].role invalid`);
+      const content = typeof h.content === "string" ? h.content.slice(0, MAX_HISTORY_CONTENT_LEN) : "";
+      return { role, content };
+    });
+  }
+  return { message: trimmed, history: safeHistory };
+}
+
+async function authenticate(req: Request): Promise<string> {
+  const auth = req.headers.get("Authorization") ?? req.headers.get("authorization");
+  if (!auth || !auth.toLowerCase().startsWith("bearer ")) {
+    throw new ClientError("Unauthorized", 401);
+  }
+  const token = auth.slice(7).trim();
+  if (!token) throw new ClientError("Unauthorized", 401);
+  const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await sb.auth.getUser(token);
+  if (error || !data?.user) throw new ClientError("Unauthorized", 401);
+  return data.user.id;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
   try {
-    if (!GEMINI_API_KEY || !HELIUS_RPC_URL) {
-      throw new Error("Server is missing GEMINI_API_KEY or HELIUS_RPC_URL");
+    if (req.method !== "POST") {
+      return new Response(JSON.stringify({ error: "Method not allowed" }), {
+        status: 405, headers: { ...corsHeaders, "content-type": "application/json" },
+      });
     }
-    const { message, history } = await req.json();
-    if (!message || typeof message !== "string") throw new Error("Missing message");
+    if (!GEMINI_API_KEY || !HELIUS_RPC_URL) {
+      logErr("config", "Missing required server secrets");
+      return new Response(JSON.stringify({ parts: [{ type: "error", message: "Service is temporarily unavailable" }] }), {
+        status: 200, headers: { ...corsHeaders, "content-type": "application/json" },
+      });
+    }
+
+    await authenticate(req);
+
+    let raw: any;
+    try { raw = await req.json(); } catch { throw new ClientError("Invalid JSON body"); }
+    const { message } = validatePayload(raw);
 
     const intent = classify(message);
     const parts: any[] = [];
 
-    if (intent.kind === "token" && intent.address) {
-      try {
+    try {
+      if (intent.kind === "token" && intent.address) {
         parts.push(await tokenIntel(intent.address));
-      } catch (e: any) {
-        parts.push({ type: "error", message: `Token lookup failed: ${e.message}` });
-      }
-    } else if (intent.kind === "tx" && intent.address) {
-      try {
+      } else if (intent.kind === "tx" && intent.address) {
         parts.push(await txDecode(intent.address));
-      } catch (e: any) {
-        parts.push({ type: "error", message: `Transaction lookup failed: ${e.message}` });
-      }
-    } else if (intent.kind === "chart") {
-      try {
+      } else if (intent.kind === "chart") {
         parts.push(await priceChart(intent.address ?? null, intent.days ?? 7));
-      } catch (e: any) {
-        parts.push({ type: "error", message: `Chart data failed: ${e.message}` });
-      }
-    } else if (intent.kind === "pulse") {
-      try {
+      } else if (intent.kind === "pulse") {
         parts.push(await marketPulse());
-      } catch (e: any) {
-        parts.push({ type: "error", message: `Market pulse failed: ${e.message}` });
+      } else {
+        const sys = "You are GHOST AI, a conversational Solana intelligence assistant. Be concise (2-4 sentences) and friendly. If the user wants on-chain data, suggest they paste a token mint address or transaction signature.";
+        const text = await gemini(`user: ${message}`, sys);
+        parts.push({ type: "text", text });
       }
-    } else {
-      const sys = "You are GHOST AI, a conversational Solana intelligence assistant. You help with token audits, transaction decoding, price charts, and market pulse. Be concise (2-4 sentences) and friendly. If the user wants on-chain data, suggest they paste a token mint address or transaction signature.";
-      const ctx = (history ?? []).slice(-6).map((m: any) => `${m.role}: ${typeof m.content === "string" ? m.content : ""}`).join("\n");
-      const text = await gemini(`${ctx}\nuser: ${message}`, sys);
-      parts.push({ type: "text", text });
-    }
-
-    // Always add a short closing text if only a card was returned
-    if (parts.length === 1 && parts[0].type !== "text" && parts[0].type !== "error") {
-      // optional brief intro
+    } catch (e) {
+      logErr(`intent:${intent.kind}`, e);
+      parts.push({ type: "error", message: "We couldn't complete that request. Please try again." });
     }
 
     return new Response(JSON.stringify({ parts }), {
       headers: { ...corsHeaders, "content-type": "application/json" },
     });
   } catch (e: any) {
-    return new Response(JSON.stringify({ parts: [{ type: "error", message: e.message ?? "Unknown error" }] }), {
-      status: 200,
-      headers: { ...corsHeaders, "content-type": "application/json" },
+    if (e instanceof ClientError) {
+      return new Response(JSON.stringify({ error: e.message }), {
+        status: e.status, headers: { ...corsHeaders, "content-type": "application/json" },
+      });
+    }
+    logErr("fatal", e);
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
+      status: 500, headers: { ...corsHeaders, "content-type": "application/json" },
     });
   }
 });

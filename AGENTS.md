@@ -1,10 +1,8 @@
-<!-- LOVABLE:BEGIN -->
-> [!IMPORTANT]
-> This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
-> published git history — force pushing, or rebasing/amending/squashing commits
-> that are already pushed — as it rewrites history on Lovable's side and the
-> user will likely lose their project history.
->
-> Commits you push to the connected branch sync back to Lovable and show up in
-> the editor, so keep the branch in a working state.
-<!-- LOVABLE:END -->
+# GHOST AI — System Architecture & Core Mechanics
+
+This repository contains the production codebase for GHOST AI, a high-performance conversational intelligence console operating natively within the Solana ecosystem.
+
+### Core Integration Engines
+
+* **Data Layer:** High-frequency, unified JSON-RPC serialization powered by Helius Enhanced Transaction and Digital Asset Standard (DAS) protocols.
+* **Compute Pipeline:** Isolated serverless processing layers engineered via Supabase Edge Functions, enforcing cryptographic user JWT validation structures and upstream token input constraints.
