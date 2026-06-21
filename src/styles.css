@@ -312,12 +312,6 @@
   .prose-chat h1, .prose-chat h2, .prose-chat h3 { font-weight: 700; margin: .8rem 0 .4rem 0; }
   .prose-chat strong { font-weight: 600; }
 
-  /* Legacy aliases (kept so any older usage still renders) */
-  .glass-panel { @apply glass; }
-  .surface-card { @apply glass; }
-  .btn-neon { @apply btn-primary; }
-  .pill-cyan { @apply pill pill-sky; }
-  .pill-magenta { @apply pill pill-sky; }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
