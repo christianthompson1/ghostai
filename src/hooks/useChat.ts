@@ -46,36 +46,37 @@ export function useChat() {
     loadConversations();
   }, [activeId, newChat, loadConversations]);
 
-  const send = useCallback(async (text: string) => {
-    if (!text.trim()) return;
-    setPending(true);
+  async function ensureConv(text: string): Promise<{ convId: string; uid: string } | null> {
     const { data: userData } = await supabase.auth.getUser();
     const uid = userData.user?.id;
-    if (!uid) { setPending(false); return; }
-
-    // Ensure conversation
+    if (!uid) return null;
     let convId = activeId;
     if (!convId) {
       const title = text.slice(0, 60);
       const { data: c, error } = await supabase
-        .from("conversations")
-        .insert({ user_id: uid, title })
-        .select("id, title, updated_at")
-        .single();
-      if (error || !c) { setPending(false); return; }
+        .from("conversations").insert({ user_id: uid, title })
+        .select("id, title, updated_at").single();
+      if (error || !c) return null;
       convId = c.id;
       setActiveId(convId);
       setConversations((prev) => [c as Conv, ...prev]);
     }
+    return { convId, uid };
+  }
 
-    // Optimistic user message
+  const send = useCallback(async (text: string) => {
+    if (!text.trim()) return;
+    setPending(true);
+    const ctx = await ensureConv(text);
+    if (!ctx) { setPending(false); return; }
+    const { convId, uid } = ctx;
+
     const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", parts: [{ type: "text", text }] };
     setMessages((m) => [...m, userMsg]);
     await supabase.from("messages").insert({
       conversation_id: convId, user_id: uid, role: "user", parts: userMsg.parts as any,
     });
 
-    // Call edge function
     try {
       const history = messages.slice(-6).map((m) => ({
         role: m.role,
@@ -103,5 +104,69 @@ export function useChat() {
     }
   }, [activeId, messages]);
 
-  return { conversations, activeId, messages, pending, send, newChat, select, remove };
+  // Run a UI-driven command (e.g. chart timeframe, click-a-token).
+  // If `inline` is true, the returned part replaces an existing part by id rather than appending.
+  const runCommand = useCallback(async (command: string, args: Record<string, any>): Promise<any | null> => {
+    try {
+      const { data, error } = await supabase.functions.invoke("solana-chat", {
+        body: { command, args },
+      });
+      if (error) throw error;
+      return data;
+    } catch (e) {
+      console.error("runCommand failed", e);
+      return null;
+    }
+  }, []);
+
+  const sendCommand = useCallback(async (command: string, args: Record<string, any>, userLabel: string) => {
+    setPending(true);
+    const ctx = await ensureConv(userLabel);
+    if (!ctx) { setPending(false); return; }
+    const { convId, uid } = ctx;
+
+    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: "user", parts: [{ type: "text", text: userLabel }] };
+    setMessages((m) => [...m, userMsg]);
+    await supabase.from("messages").insert({
+      conversation_id: convId, user_id: uid, role: "user", parts: userMsg.parts as any,
+    });
+
+    const data = await runCommand(command, args);
+    const parts = data?.parts ?? [{ type: "error", message: "No response" }];
+    const aiMsg: ChatMessage = { id: crypto.randomUUID(), role: "assistant", parts };
+    setMessages((m) => [...m, aiMsg]);
+    await supabase.from("messages").insert({
+      conversation_id: convId, user_id: uid, role: "assistant", parts: parts as any,
+    });
+    await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
+    setPending(false);
+  }, [activeId, runCommand]);
+
+  // Replace a single price_chart message-part in place (used by timeframe toggle)
+  const updateChartTimeframe = useCallback(async (messageId: string, partIndex: number, timeframe: string) => {
+    const msg = messages.find((m) => m.id === messageId);
+    const current = msg?.parts[partIndex];
+    if (!current) return;
+    const data = await runCommand("chart", {
+      timeframe,
+      symbol: current.symbol,
+      coingeckoId: current.coingeckoId,
+      address: current.address,
+      name: current.name,
+    });
+    const newPart = data?.parts?.[0];
+    if (!newPart) return;
+    setMessages((all) => all.map((m) => {
+      if (m.id !== messageId) return m;
+      const next = [...m.parts];
+      next[partIndex] = newPart;
+      return { ...m, parts: next };
+    }));
+  }, [messages, runCommand]);
+
+  return {
+    conversations, activeId, messages, pending,
+    send, newChat, select, remove,
+    sendCommand, runCommand, updateChartTimeframe,
+  };
 }

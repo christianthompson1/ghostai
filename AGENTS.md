@@ -1,8 +1,3 @@
-# GHOST AI — System Architecture & Core Mechanics
+# GHOST AI — Conversational Terminal (Ghost Protocol)
 
-This repository contains the production codebase for GHOST AI, a high-performance conversational intelligence console operating natively within the Solana ecosystem.
-
-### Core Integration Engines
-
-* **Data Layer:** High-frequency, unified JSON-RPC serialization powered by Helius Enhanced Transaction and Digital Asset Standard (DAS) protocols.
-* **Compute Pipeline:** Isolated serverless processing layers engineered via Supabase Edge Functions, enforcing cryptographic user JWT validation structures and upstream token input constraints.
+This repository contains the interactive client workspace for Ghost AI, the dedicated conversational terminal built under the Ghost Protocol ecosystem to seamlessly map on-chain market intelligence.

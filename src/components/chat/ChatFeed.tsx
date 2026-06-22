@@ -32,7 +32,7 @@ export function ChatFeed({ messages, pending }: { messages: ChatMessage[]; pendi
               {m.role === "user" ? (
                 <span>{m.parts[0]?.text ?? ""}</span>
               ) : (
-                m.parts.map((p, i) => <MessagePart key={i} part={p} />)
+                m.parts.map((p, i) => <MessagePart key={i} part={p} messageId={m.id} partIndex={i} />)
               )}
             </div>
           </div>
