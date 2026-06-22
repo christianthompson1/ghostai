@@ -5,7 +5,7 @@ import { TxDecodeCard } from "@/components/cards/TxDecodeCard";
 import { MarketPulseCard } from "@/components/cards/MarketPulseCard";
 import { ErrorCard } from "@/components/cards/ErrorCard";
 
-export function MessagePart({ part }: { part: any }) {
+export function MessagePart({ part, messageId, partIndex }: { part: any; messageId?: string; partIndex?: number }) {
   switch (part.type) {
     case "text":
       return (
@@ -14,7 +14,7 @@ export function MessagePart({ part }: { part: any }) {
         </div>
       );
     case "token_intel": return <TokenIntelCard data={part} />;
-    case "price_chart": return <PriceChartCard data={part} />;
+    case "price_chart": return <PriceChartCard data={part} messageId={messageId} partIndex={partIndex} />;
     case "tx_decode": return <TxDecodeCard data={part} />;
     case "market_pulse": return <MarketPulseCard data={part} />;
     case "error": return <ErrorCard message={part.message} />;
