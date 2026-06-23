@@ -145,15 +145,11 @@ export function useChat() {
   // Replace a single price_chart message-part in place (used by timeframe toggle)
   const updateChartTimeframe = useCallback(async (messageId: string, partIndex: number, timeframe: string) => {
     const msg = messages.find((m) => m.id === messageId);
-    const current = msg?.parts[partIndex];
+    const current: any = msg?.parts[partIndex];
     if (!current) return;
-    const data = await runCommand("chart", {
-      timeframe,
-      symbol: current.symbol,
-      coingeckoId: current.coingeckoId,
-      address: current.address,
-      name: current.name,
-    });
+    const query = current.address ?? current.symbol;
+    if (!query) return;
+    const data = await runCommand("chart", { timeframe, query });
     const newPart = data?.parts?.[0];
     if (!newPart) return;
     setMessages((all) => all.map((m) => {
