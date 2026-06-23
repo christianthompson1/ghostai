@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Copy } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
@@ -24,8 +25,8 @@ function CopyChip({ value, label }: { value: string; label: string }) {
   );
 }
 
-function decorate(text: string): (string | JSX.Element)[] {
-  const out: (string | JSX.Element)[] = [];
+function decorate(text: string): ReactNode[] {
+  const out: ReactNode[] = [];
   let lastIdx = 0;
   let key = 0;
   // Combined matching: find all addresses and tickers, decorate
