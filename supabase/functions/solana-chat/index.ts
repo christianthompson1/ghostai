@@ -14,20 +14,7 @@ const MAX_HISTORY_CONTENT_LEN = 2000;
 const ADDR_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
 const SIG_RE = /\b[1-9A-HJ-NP-Za-km-z]{64,88}\b/;
 
-// Known Solana ecosystem tokens — symbol -> { mint, coingecko id }
-type Known = { address?: string; coingeckoId: string; name: string; symbol: string };
-const KNOWN: Record<string, Known> = {
-  SOL:  { coingeckoId: "solana", name: "Solana", symbol: "SOL" },
-  BONK: { address: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", coingeckoId: "bonk", name: "Bonk", symbol: "BONK" },
-  WIF:  { address: "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm", coingeckoId: "dogwifcoin", name: "dogwifhat", symbol: "WIF" },
-  JUP:  { address: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", coingeckoId: "jupiter-exchange-solana", name: "Jupiter", symbol: "JUP" },
-  JTO:  { address: "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL", coingeckoId: "jito-governance-token", name: "Jito", symbol: "JTO" },
-  PYTH: { address: "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3", coingeckoId: "pyth-network", name: "Pyth", symbol: "PYTH" },
-  USDC: { address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", coingeckoId: "usd-coin", name: "USD Coin", symbol: "USDC" },
-  RAY:  { address: "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R", coingeckoId: "raydium", name: "Raydium", symbol: "RAY" },
-  ORCA: { address: "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE", coingeckoId: "orca", name: "Orca", symbol: "ORCA" },
-  MSOL: { address: "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So", coingeckoId: "msol", name: "Marinade SOL", symbol: "mSOL" },
-};
+const SOL_NATIVE = "So11111111111111111111111111111111111111112";
 
 class ClientError extends Error {
   status: number;
@@ -75,151 +62,178 @@ async function gemini(prompt: string, system?: string, model = "gemini-2.5-flash
   return j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("\n") ?? "";
 }
 
-function resolveSymbol(text: string): Known | null {
-  const upper = text.toUpperCase();
-  // explicit $SYMBOL or whole-word symbol match
-  for (const sym of Object.keys(KNOWN)) {
-    const re = new RegExp(`(^|[^A-Z0-9])\\$?${sym}([^A-Z0-9]|$)`);
-    if (re.test(upper)) return KNOWN[sym];
-  }
-  // by lowercase name
-  const lower = text.toLowerCase();
-  for (const k of Object.values(KNOWN)) {
-    if (lower.includes(k.name.toLowerCase())) return k;
-  }
-  return null;
-}
+// ---------------- DexScreener resolver ----------------
+type Resolved = {
+  address: string;
+  symbol: string;
+  name: string;
+  image: string | null;
+  poolAddress: string | null;
+  priceUsd: number | null;
+  change24h: number | null;
+  marketCap: number | null;
+  liquidityUsd: number | null;
+  volume24h: number | null;
+  pairUrl: string | null;
+};
 
-async function coingeckoMeta(id: string) {
-  const r = await fetch(`https://api.coingecko.com/api/v3/coins/${id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false`);
+async function dexResolve(query: string): Promise<Resolved | null> {
+  const q = query.trim();
+  if (!q) return null;
+  // If raw mint, fetch by tokens endpoint first
+  const isAddr = ADDR_RE.test(q) && q.length >= 32 && q.length <= 44;
+  const url = isAddr
+    ? `https://api.dexscreener.com/latest/dex/tokens/${q}`
+    : `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q.replace(/^\$/, ""))}`;
+  const r = await fetch(url);
   if (!r.ok) return null;
-  return r.json();
+  const j = await r.json();
+  const pairs: any[] = (j?.pairs ?? []).filter((p: any) => p.chainId === "solana");
+  if (!pairs.length) return null;
+  pairs.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0));
+  const top = pairs[0];
+  const base = top.baseToken;
+  return {
+    address: base.address,
+    symbol: (base.symbol ?? "").toUpperCase(),
+    name: base.name ?? base.symbol,
+    image: top.info?.imageUrl ?? null,
+    poolAddress: top.pairAddress ?? null,
+    priceUsd: top.priceUsd ? Number(top.priceUsd) : null,
+    change24h: top.priceChange?.h24 ?? null,
+    marketCap: top.marketCap ?? top.fdv ?? null,
+    liquidityUsd: top.liquidity?.usd ?? null,
+    volume24h: top.volume?.h24 ?? null,
+    pairUrl: top.url ?? null,
+  };
 }
 
-async function tokenIntel(address: string | null, known?: Known | null) {
-  const meta = known ? await coingeckoMeta(known.coingeckoId).catch(() => null) : null;
-  const md = meta?.market_data;
-  const genesis = meta?.genesis_date ? new Date(meta.genesis_date) : null;
-  const ageDays = genesis ? Math.floor((Date.now() - genesis.getTime()) / 86400000) : null;
-
-  // SOL has no SPL mint
-  const isNative = known?.symbol === "SOL" && !address;
-
-  let onchain: any = { mintAuthority: null, freezeAuthority: null, supply: null, decimals: null, image: null, name: null, symbol: null, holders: [], top10Concentration: 0, topHolderPct: 0 };
-
-  if (address) {
-    const [asset, largest, supply] = await Promise.all([
-      fetch(HELIUS_RPC_URL, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getAsset", params: { id: address } }),
-      }).then((r) => r.json()).then((j) => j.result).catch(() => null),
-      rpc("getTokenLargestAccounts", [address]).catch(() => null),
-      rpc("getTokenSupply", [address]).catch(() => null),
+// ---------------- RugCheck ----------------
+async function rugCheck(address: string) {
+  try {
+    const [summaryR, fullR] = await Promise.all([
+      fetch(`https://api.rugcheck.xyz/v1/tokens/${address}/report/summary`),
+      fetch(`https://api.rugcheck.xyz/v1/tokens/${address}/report`),
     ]);
-    const holders = largest?.value ?? [];
-    const total = Number(supply?.value?.uiAmountString ?? 0);
-    const top10 = holders.slice(0, 10).reduce((a: number, h: any) => a + Number(h.uiAmount ?? 0), 0);
-    const top1 = Number(holders[0]?.uiAmount ?? 0);
-    onchain = {
-      mintAuthority: asset?.token_info?.mint_authority ?? null,
-      freezeAuthority: asset?.token_info?.freeze_authority ?? null,
-      supply: supply?.value?.uiAmountString ?? null,
-      decimals: supply?.value?.decimals ?? null,
-      image: asset?.content?.links?.image ?? asset?.content?.metadata?.image ?? null,
-      name: asset?.content?.metadata?.name ?? null,
-      symbol: asset?.content?.metadata?.symbol ?? null,
-      holders,
-      top10Concentration: total > 0 ? (top10 / total) * 100 : 0,
-      topHolderPct: total > 0 ? (top1 / total) * 100 : 0,
+    const summary = summaryR.ok ? await summaryR.json() : null;
+    const full = fullR.ok ? await fullR.json() : null;
+    return {
+      score: summary?.score_normalised ?? summary?.score ?? null,
+      risks: (summary?.risks ?? []).slice(0, 6).map((r: any) => ({
+        name: r.name, level: r.level, description: r.description, score: r.score,
+      })),
+      mintAuthority: full?.token?.mintAuthority ?? null,
+      freezeAuthority: full?.token?.freezeAuthority ?? null,
+      supply: full?.token?.supply ?? null,
+      decimals: full?.token?.decimals ?? null,
+      totalLPProviders: full?.totalLPProviders ?? null,
+      totalMarketLiquidity: full?.totalMarketLiquidity ?? null,
+      rugged: full?.rugged ?? false,
+      lpLockedPct: full?.markets?.[0]?.lp?.lpLockedPct ?? null,
     };
+  } catch (e) {
+    logErr("rugcheck", e);
+    return null;
   }
+}
 
-  // Risk scoring
-  let score = 0;
-  if (onchain.top10Concentration > 50) score += 35;
-  else if (onchain.top10Concentration > 30) score += 20;
-  else if (onchain.top10Concentration > 15) score += 8;
-  if (onchain.topHolderPct > 25) score += 25;
-  if (onchain.mintAuthority) score += 15;
-  if (onchain.freezeAuthority) score += 10;
-  if (ageDays !== null && ageDays < 90) score += 10;
-  if (isNative) score = 0;
-  score = Math.min(100, score);
+// ---------------- Token Intel (DexScreener + RugCheck) ----------------
+async function tokenIntel(input: string) {
+  const resolved = await dexResolve(input);
+  if (!resolved) throw new ClientError("Token not found on DexScreener");
+  const rug = await rugCheck(resolved.address);
+
+  // Compose risk
+  let score = rug?.score ?? 0;
+  if (rug?.mintAuthority) score = Math.max(score, 65);
+  if (rug?.rugged) score = 100;
+  score = Math.min(100, Math.max(0, score));
   const risk = score >= 60 ? "HIGH" : score >= 35 ? "MEDIUM" : score > 0 ? "LOW" : "MINIMAL";
 
-  const name = known?.name ?? onchain.name ?? meta?.name ?? "Unknown";
-  const symbol = known?.symbol ?? onchain.symbol ?? meta?.symbol?.toUpperCase() ?? "—";
-  const image = meta?.image?.large ?? meta?.image?.small ?? onchain.image ?? null;
-
   const summary = await gemini(
-    `Write a 3-4 sentence professional security & overview audit. Token: ${name} (${symbol}). Age: ${ageDays ?? "unknown"} days. Risk score: ${risk} (${score}/100). Top 10 wallets hold ${onchain.top10Concentration.toFixed(1)}% of supply, top wallet ${onchain.topHolderPct.toFixed(1)}%. Mint authority ${onchain.mintAuthority ? "ACTIVE (can mint more)" : "revoked"}. Freeze authority ${onchain.freezeAuthority ? "ACTIVE (can freeze wallets)" : "revoked"}. Market cap $${md?.market_cap?.usd?.toLocaleString() ?? "n/a"}.`,
+    `Write a 3-4 sentence professional security & overview audit. Token: ${resolved.name} (${resolved.symbol}). Risk score: ${risk} (${score}/100). Mint authority ${rug?.mintAuthority ? "ACTIVE — supply can be inflated" : "revoked"}. Freeze authority ${rug?.freezeAuthority ? "ACTIVE — wallets can be frozen" : "revoked"}. Liquidity: $${(rug?.totalMarketLiquidity ?? resolved.liquidityUsd ?? 0).toLocaleString()}. LP providers: ${rug?.totalLPProviders ?? "n/a"}. Market cap: $${resolved.marketCap?.toLocaleString() ?? "n/a"}. Top risks: ${(rug?.risks ?? []).map((r: any) => r.name).join(", ") || "none flagged"}.`,
     "You are GHOST AI's on-chain security analyst. Be direct, concrete, no disclaimers, no hype."
   ).catch((e) => { logErr("intel-summary", e); return ""; });
 
   return {
     type: "token_intel",
-    address: address ?? null,
-    name, symbol, image,
-    decimals: onchain.decimals,
-    supply: onchain.supply,
-    totalSupply: md?.total_supply ?? null,
-    circulatingSupply: md?.circulating_supply ?? null,
-    maxSupply: md?.max_supply ?? null,
-    marketCap: md?.market_cap?.usd ?? null,
-    price: md?.current_price?.usd ?? null,
-    change24h: md?.price_change_percentage_24h ?? null,
-    ageDays,
-    genesisDate: meta?.genesis_date ?? null,
-    mintAuthority: onchain.mintAuthority,
-    freezeAuthority: onchain.freezeAuthority,
-    topHolderPct: Number(onchain.topHolderPct.toFixed(2)),
-    top10Concentration: Number(onchain.top10Concentration.toFixed(2)),
+    address: resolved.address,
+    name: resolved.name,
+    symbol: resolved.symbol,
+    image: resolved.image,
+    poolAddress: resolved.poolAddress,
+    pairUrl: resolved.pairUrl,
+    price: resolved.priceUsd,
+    change24h: resolved.change24h,
+    marketCap: resolved.marketCap,
+    liquidity: rug?.totalMarketLiquidity ?? resolved.liquidityUsd,
+    volume24h: resolved.volume24h,
+    supply: rug?.supply ?? null,
+    decimals: rug?.decimals ?? null,
+    mintAuthority: rug?.mintAuthority ?? null,
+    freezeAuthority: rug?.freezeAuthority ?? null,
+    lpProviders: rug?.totalLPProviders ?? null,
+    lpLockedPct: rug?.lpLockedPct ?? null,
+    rugged: rug?.rugged ?? false,
+    risks: rug?.risks ?? [],
     riskScore: score,
     risk,
     summary,
   };
 }
 
-const DAYS_MAP: Record<string, 1 | 7 | 30 | 365> = { "1D": 1, "1W": 7, "1M": 30, "1Y": 365 };
+// ---------------- Multi-timeframe chart (GeckoTerminal OHLCV) ----------------
+type TF = "1m" | "5m" | "1h" | "1D" | "7D" | "1M" | "6M" | "1Y";
+const TF_CONFIG: Record<TF, { tf: "minute" | "hour" | "day"; agg: number; limit: number }> = {
+  "1m": { tf: "minute", agg: 1, limit: 60 },
+  "5m": { tf: "minute", agg: 5, limit: 72 },
+  "1h": { tf: "hour", agg: 1, limit: 24 },
+  "1D": { tf: "hour", agg: 1, limit: 24 },
+  "7D": { tf: "hour", agg: 4, limit: 42 },
+  "1M": { tf: "day", agg: 1, limit: 30 },
+  "6M": { tf: "day", agg: 1, limit: 180 },
+  "1Y": { tf: "day", agg: 7, limit: 52 },
+};
 
-async function priceChart(opts: { address?: string | null; coingeckoId?: string | null; days: 1 | 7 | 30 | 365; symbol?: string; name?: string }) {
-  const { days } = opts;
-  let url: string;
-  if (opts.coingeckoId) {
-    url = `https://api.coingecko.com/api/v3/coins/${opts.coingeckoId}/market_chart?vs_currency=usd&days=${days}`;
-  } else if (opts.address) {
-    url = `https://api.coingecko.com/api/v3/coins/solana/contract/${opts.address}/market_chart?vs_currency=usd&days=${days}`;
-  } else {
-    url = `https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=${days}`;
+async function priceChart(opts: { input?: string; resolved?: Resolved | null; timeframe: TF }) {
+  const tf = (TF_CONFIG[opts.timeframe] ? opts.timeframe : "1D") as TF;
+  let resolved = opts.resolved ?? null;
+  if (!resolved && opts.input) {
+    resolved = await dexResolve(opts.input);
   }
-  let r = await fetch(url);
-  if (!r.ok) {
-    r = await fetch(`https://api.coingecko.com/api/v3/coins/solana/market_chart?vs_currency=usd&days=${days}`);
-  }
-  if (!r.ok) throw new Error("Price data unavailable");
+  if (!resolved) throw new ClientError("Token not found");
+  if (!resolved.poolAddress) throw new ClientError("No tradeable pool found for this token");
+
+  const cfg = TF_CONFIG[tf];
+  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools/${resolved.poolAddress}/ohlcv/${cfg.tf}?aggregate=${cfg.agg}&limit=${cfg.limit}`;
+  const r = await fetch(url, { headers: { accept: "application/json" } });
+  if (!r.ok) throw new ClientError("Price data unavailable");
   const j = await r.json();
-  const prices: [number, number][] = j.prices ?? [];
-  // dedupe and ensure ascending time (lightweight-charts requirement)
+  const raw: number[][] = j?.data?.attributes?.ohlcv_list ?? [];
   const seen = new Set<number>();
-  const points = prices
-    .map(([t, p]) => ({ time: Math.floor(t / 1000), value: p }))
+  const points = raw
+    .map((row) => ({ time: row[0], value: row[4] }))
     .filter((p) => (seen.has(p.time) ? false : (seen.add(p.time), true)))
     .sort((a, b) => a.time - b.time);
 
+  const first = points[0]?.value ?? 0;
+  const last = points.at(-1)?.value ?? 0;
+
   return {
     type: "price_chart",
-    address: opts.address ?? null,
-    coingeckoId: opts.coingeckoId ?? null,
-    symbol: opts.symbol ?? "SOL",
-    name: opts.name ?? "Solana",
-    days,
+    address: resolved.address,
+    poolAddress: resolved.poolAddress,
+    symbol: resolved.symbol,
+    name: resolved.name,
+    image: resolved.image,
+    timeframe: tf,
     points,
-    current: points.at(-1)?.value ?? null,
-    change: points.length > 1 ? ((points.at(-1)!.value - points[0].value) / points[0].value) * 100 : 0,
+    current: last || resolved.priceUsd,
+    change: first > 0 ? ((last - first) / first) * 100 : 0,
   };
 }
 
+// ---------------- Transaction decode ----------------
 async function txDecode(signature: string) {
   const apiKey = heliusApiKey();
   const r = await fetch(`https://api.helius.xyz/v0/transactions?api-key=${apiKey}`, {
@@ -249,6 +263,54 @@ async function txDecode(signature: string) {
   };
 }
 
+// ---------------- Pump.fun graduation tracker ----------------
+async function pumpfunGraduating(limit = 20) {
+  // Try the public frontend API; structure: array of coins with completion%
+  const urls = [
+    `https://frontend-api-v3.pump.fun/coins?offset=0&limit=${limit}&sort=progress&order=DESC&includeNsfw=false`,
+    `https://frontend-api.pump.fun/coins?offset=0&limit=${limit}&sort=progress&order=DESC&includeNsfw=false`,
+  ];
+  let coins: any[] | null = null;
+  let lastErr: any = null;
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, {
+        headers: {
+          "accept": "application/json",
+          "user-agent": "Mozilla/5.0 (compatible; GhostAI/1.0)",
+          "origin": "https://pump.fun",
+          "referer": "https://pump.fun/",
+        },
+      });
+      if (!r.ok) { lastErr = `${r.status}`; continue; }
+      const j = await r.json();
+      coins = Array.isArray(j) ? j : (j?.coins ?? null);
+      if (coins) break;
+    } catch (e) { lastErr = e; }
+  }
+  if (!coins) {
+    logErr("pumpfun", lastErr);
+    throw new ClientError("Pump.fun feed temporarily unavailable");
+  }
+  return coins.slice(0, limit).map((c: any) => {
+    // bonding curve: market_cap progress; pump uses 'usd_market_cap' or 'market_cap'
+    const mc = c.usd_market_cap ?? c.market_cap ?? 0;
+    // graduation target ~$69k market cap on bonding curve
+    const progress = Math.min(100, (mc / 69000) * 100);
+    return {
+      mint: c.mint,
+      name: c.name,
+      symbol: c.symbol,
+      image: c.image_uri ?? c.image ?? null,
+      progress: Number(progress.toFixed(2)),
+      marketCap: mc,
+      createdAt: c.created_timestamp ?? null,
+      description: c.description ?? null,
+    };
+  });
+}
+
+// ---------------- Trending (legacy compat) ----------------
 async function trending(limit = 12) {
   const r = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=solana-ecosystem&order=volume_desc&per_page=${limit}&page=1&price_change_percentage=24h`);
   if (!r.ok) throw new Error("Trending unavailable");
@@ -272,36 +334,45 @@ async function marketPulse() {
   return { type: "market_pulse", movers, epoch, summary };
 }
 
-function classify(text: string): { kind: string; address?: string; days?: 1 | 7 | 30 | 365; known?: Known | null } {
+// ---------------- Intent classifier ----------------
+function classify(text: string): { kind: string; query?: string; signature?: string; timeframe?: TF } {
   const t = text.toLowerCase();
   const sigMatch = text.match(SIG_RE);
-  const addrMatch = text.match(ADDR_RE);
-  if (sigMatch && sigMatch[0].length >= 64) return { kind: "tx", address: sigMatch[0] };
+  if (sigMatch && sigMatch[0].length >= 64) return { kind: "tx", signature: sigMatch[0] };
 
   const wantsAudit = /\b(audit|security|rug|safe|safety|check|overview|holders?|authority)\b/.test(t);
-  const wantsChart = /\b(chart|price|graph)\b/.test(t);
+  const wantsChart = /\b(chart|price|graph|candle)\b/.test(t);
   const wantsPulse = /\b(trend|pulse|market|movers?)\b/.test(t) && !wantsChart && !wantsAudit;
+  const wantsPump = /\b(pump|graduat|bonding)\b/.test(t);
 
-  let days: 1 | 7 | 30 | 365 = 7;
-  if (/\b1d\b|24h|today/.test(t)) days = 1;
-  else if (/\b1y\b|year/.test(t)) days = 365;
-  else if (/\b1m\b|month|30/.test(t)) days = 30;
-  else if (/\b1w\b|week/.test(t)) days = 7;
+  let timeframe: TF = "1D";
+  if (/\b1m\b|1\s*min/.test(t)) timeframe = "1m";
+  else if (/\b5m\b|5\s*min/.test(t)) timeframe = "5m";
+  else if (/\b1h\b|hour/.test(t)) timeframe = "1h";
+  else if (/\b1d\b|24h|today|day/.test(t)) timeframe = "1D";
+  else if (/\b7d\b|week/.test(t)) timeframe = "7D";
+  else if (/\b1mo\b|month/.test(t)) timeframe = "1M";
+  else if (/\b6mo\b|6\s*months/.test(t)) timeframe = "6M";
+  else if (/\b1y\b|year/.test(t)) timeframe = "1Y";
 
+  if (wantsPump) return { kind: "pumpfun" };
   if (wantsPulse) return { kind: "pulse" };
 
-  const known = resolveSymbol(text);
+  // Extract token query: $TICKER, raw address, or last quoted word
+  const addrMatch = text.match(ADDR_RE);
+  const dollarMatch = text.match(/\$([A-Za-z][A-Za-z0-9]{1,10})/);
+  const query = addrMatch?.[0] ?? dollarMatch?.[1] ?? null;
 
-  if (wantsChart) return { kind: "chart", address: addrMatch?.[0], days, known };
-  if (wantsAudit) return { kind: "token", address: addrMatch?.[0], known };
-  if (addrMatch) return { kind: "token", address: addrMatch[0], known };
+  if (wantsChart && query) return { kind: "chart", query, timeframe };
+  if (wantsAudit && query) return { kind: "token", query };
+  if (addrMatch) return { kind: "token", query: addrMatch[0] };
+  if (dollarMatch) return { kind: "token", query: dollarMatch[1] };
 
   return { kind: "chat" };
 }
 
 function validatePayload(raw: any) {
   if (!raw || typeof raw !== "object") throw new ClientError("Invalid request body");
-  // Command path (button-driven UI actions)
   if (raw.command) {
     return { mode: "command" as const, command: String(raw.command), args: raw.args ?? {} };
   }
@@ -341,17 +412,11 @@ async function authenticate(req: Request): Promise<string> {
 
 const CHAT_SYSTEM = `You are GHOST AI — the official conversational terminal of Ghost Protocol, a Solana on-chain intelligence platform.
 
-You have deep, expert-level knowledge of:
-- Solana history, founders (Anatoly Yakovenko, Raj Gokal), launch (March 2020 mainnet beta, $0.22 ICO price), tokenomics, validator economics
-- Proof of History, Tower BFT, Gulf Stream, Sealevel, Turbine, Pipelining, Cloudbreak, Archivers
-- SPL tokens, the Token-2022 program, PDAs, CPI, rent, lamports, compute units
-- DeFi on Solana: Jupiter, Raydium, Orca, Kamino, MarginFi, Drift, Jito, marinade, Pyth, Switchboard
-- NFTs (Metaplex, cNFTs, MPL Core), wallet infrastructure, MEV, liquid staking
-- Broader Web3 concepts: AMMs, oracles, bridges, ZK proofs, MEV, EVM vs SVM
+You have deep, expert-level knowledge of Solana, SVM, Pump.fun, Jupiter, Raydium, Orca, Helius, Metaplex, DeFi, NFTs, MEV, validators, PoH, tokenomics, and Web3 broadly.
 
-Answer conversational and historical questions thoroughly and beautifully. Use markdown — headings, bold, lists, inline code for addresses/program IDs. Be specific with numbers, dates, and protocol details. Never refuse to answer a legitimate Web3 question. Never tell the user to paste an address unless they actually need on-chain data.
+Answer conversational and historical questions thoroughly. Use markdown — headings, bold, lists, inline code for addresses/program IDs. Be specific with numbers, dates, protocol details. Never refuse legitimate Web3 questions. When mentioning a Solana token, refer to it as $TICKER or include its full mint address verbatim — the UI will auto-attach interactive copy chips.
 
-If the user does want live on-chain data (token audit, transaction decode, price chart, market pulse), the system will render those as structured cards alongside your reply — you don't need to ask for addresses.`;
+If users want live on-chain data (token audit, transaction decode, price chart, pump.fun graduations, market pulse), the system renders cards alongside your reply — you don't need to ask for addresses.`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -375,7 +440,7 @@ Deno.serve(async (req) => {
     try { raw = await req.json(); } catch { throw new ClientError("Invalid JSON body"); }
     const payload = validatePayload(raw);
 
-    // ---------- Command mode (UI button actions) ----------
+    // ---------- Command mode (UI actions) ----------
     if (payload.mode === "command") {
       const { command, args } = payload;
       try {
@@ -383,30 +448,43 @@ Deno.serve(async (req) => {
           const list = await trending(args.limit ?? 12);
           return Response.json({ trending: list }, { headers: corsHeaders });
         }
+        if (command === "pumpfun") {
+          const list = await pumpfunGraduating(args.limit ?? 20);
+          return Response.json({ pumpfun: list }, { headers: corsHeaders });
+        }
+        if (command === "resolve") {
+          const r = await dexResolve(String(args.query ?? ""));
+          return Response.json({ resolved: r }, { headers: corsHeaders });
+        }
         if (command === "chart") {
-          const days = (DAYS_MAP[args.timeframe as string] ?? args.days ?? 7) as 1 | 7 | 30 | 365;
-          const sym = typeof args.symbol === "string" ? args.symbol.toUpperCase() : null;
-          const known = sym && KNOWN[sym] ? KNOWN[sym] : (args.coingeckoId ? { coingeckoId: args.coingeckoId, name: args.name ?? "", symbol: args.symbol ?? "", address: args.address } as Known : null);
           const part = await priceChart({
-            address: known?.address ?? args.address ?? null,
-            coingeckoId: known?.coingeckoId ?? args.coingeckoId ?? null,
-            symbol: known?.symbol ?? args.symbol ?? "SOL",
-            name: known?.name ?? args.name ?? "Solana",
-            days,
+            input: args.query ?? args.address ?? args.symbol,
+            timeframe: (args.timeframe as TF) ?? "1D",
           });
           return Response.json({ parts: [part] }, { headers: corsHeaders });
         }
         if (command === "audit") {
-          const sym = typeof args.symbol === "string" ? args.symbol.toUpperCase() : null;
-          const known = sym && KNOWN[sym] ? KNOWN[sym] : null;
-          const addr = args.address ?? known?.address ?? null;
-          const part = await tokenIntel(addr, known);
+          const part = await tokenIntel(String(args.query ?? args.address ?? args.symbol ?? ""));
           return Response.json({ parts: [part] }, { headers: corsHeaders });
+        }
+        if (command === "token_combo") {
+          // Click-a-token from pumpfun list: chart + audit
+          const query = String(args.query ?? args.address ?? "");
+          const [chartP, intelP] = await Promise.allSettled([
+            priceChart({ input: query, timeframe: (args.timeframe as TF) ?? "1D" }),
+            tokenIntel(query),
+          ]);
+          const parts: any[] = [];
+          if (chartP.status === "fulfilled") parts.push(chartP.value);
+          if (intelP.status === "fulfilled") parts.push(intelP.value);
+          if (!parts.length) parts.push({ type: "error", message: "Token data unavailable" });
+          return Response.json({ parts }, { headers: corsHeaders });
         }
         throw new ClientError("Unknown command");
       } catch (e) {
         logErr(`command:${command}`, e);
-        return Response.json({ parts: [{ type: "error", message: "We couldn't complete that action. Please try again." }] }, { headers: corsHeaders });
+        const msg = e instanceof ClientError ? e.message : "We couldn't complete that action. Please try again.";
+        return Response.json({ parts: [{ type: "error", message: msg }] }, { headers: corsHeaders });
       }
     }
 
@@ -416,23 +494,19 @@ Deno.serve(async (req) => {
     const parts: any[] = [];
 
     try {
-      if (intent.kind === "tx" && intent.address) {
-        parts.push(await txDecode(intent.address));
+      if (intent.kind === "tx" && intent.signature) {
+        parts.push(await txDecode(intent.signature));
       } else if (intent.kind === "pulse") {
         parts.push(await marketPulse());
-      } else if (intent.kind === "chart") {
-        const k = intent.known ?? null;
-        parts.push(await priceChart({
-          address: intent.address ?? k?.address ?? null,
-          coingeckoId: k?.coingeckoId ?? null,
-          symbol: k?.symbol ?? "SOL",
-          name: k?.name ?? "Solana",
-          days: intent.days ?? 7,
-        }));
-      } else if (intent.kind === "token") {
-        parts.push(await tokenIntel(intent.address ?? intent.known?.address ?? null, intent.known ?? null));
+      } else if (intent.kind === "pumpfun") {
+        const list = await pumpfunGraduating(20);
+        parts.push({ type: "text", text: `Top **${list.length}** Pump.fun tokens closest to graduation:` });
+        parts.push({ type: "pumpfun_list", items: list });
+      } else if (intent.kind === "chart" && intent.query) {
+        parts.push(await priceChart({ input: intent.query, timeframe: intent.timeframe ?? "1D" }));
+      } else if (intent.kind === "token" && intent.query) {
+        parts.push(await tokenIntel(intent.query));
       } else {
-        // Pure conversational web3 question — answer thoroughly
         const ctx = history.slice(-6).map((h) => `${h.role}: ${h.content}`).join("\n");
         const text = await gemini(
           `${ctx ? `Recent conversation:\n${ctx}\n\n` : ""}User: ${message}`,
@@ -444,11 +518,11 @@ Deno.serve(async (req) => {
       }
     } catch (e) {
       logErr(`intent:${intent.kind}`, e);
-      // For chat questions, never surface an error block — fall back to a plain reply
       if (intent.kind === "chat") {
         parts.push({ type: "text", text: "I hit a temporary issue reaching my reasoning model. Please try again in a moment." });
       } else {
-        parts.push({ type: "error", message: "We couldn't complete that request. Please try again." });
+        const msg = e instanceof ClientError ? e.message : "We couldn't complete that request. Please try again.";
+        parts.push({ type: "error", message: msg });
       }
     }
 

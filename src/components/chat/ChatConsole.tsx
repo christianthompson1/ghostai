@@ -1,18 +1,18 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Menu, Flame } from "lucide-react";
+import { Menu, Rocket } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useChat } from "@/hooks/useChat";
 import { Sidebar } from "@/components/chat/Sidebar";
 import { ChatFeed } from "@/components/chat/ChatFeed";
 import { Composer } from "@/components/chat/Composer";
-import { TrendingRail } from "@/components/chat/TrendingRail";
+import { PumpFunRail } from "@/components/chat/PumpFunRail";
 import { ChatActionsContext } from "@/components/chat/ChatActionsContext";
 
 const PRESETS = [
-  { label: "🛡️ Audit a token", prompt: "Audit this token: " },
-  { label: "🧾 Decode a transaction", prompt: "Decode this transaction: " },
-  { label: "📈 SOL 7-day chart", prompt: "Show me a 7-day price chart for SOL" },
+  { label: "🛡️ Audit $BONK", prompt: "Audit $BONK" },
+  { label: "📈 $WIF 1H chart", prompt: "Show me a 1H chart for $WIF" },
+  { label: "🚀 Pump.fun graduating", prompt: "Show me top pump.fun graduating tokens" },
   { label: "🌊 Solana market pulse", prompt: "Give me the current Solana market pulse" },
 ];
 
@@ -21,7 +21,7 @@ export function ChatConsole() {
   const chat = useChat();
   const [input, setInput] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [trendingOpen, setTrendingOpen] = useState(false);
+  const [railOpen, setRailOpen] = useState(false);
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -40,19 +40,18 @@ export function ChatConsole() {
     chat.send(v);
   }
 
-  function handlePickToken(t: { symbol: string; name: string; id: string }) {
+  function handlePickPumpToken(t: { mint: string; symbol: string }) {
     chat.sendCommand(
-      "chart",
-      { symbol: t.symbol, coingeckoId: t.id, name: t.name, timeframe: "1W" },
-      `Show ${t.symbol} chart`,
+      "token_combo",
+      { query: t.mint, timeframe: "1h" },
+      `Analyze ${t.symbol} (${t.mint.slice(0, 6)}…)`,
     );
-    setTrendingOpen(false);
+    setRailOpen(false);
   }
 
   return (
     <ChatActionsContext.Provider value={{ updateChartTimeframe: chat.updateChartTimeframe, sendCommand: chat.sendCommand }}>
       <div className="h-screen w-full flex overflow-hidden p-2 sm:p-4 gap-3 bg-[var(--background)]">
-        {/* Left: history sidebar */}
         <div className="hidden lg:block w-72 shrink-0 glass rounded-2xl overflow-hidden">
           <Sidebar
             conversations={chat.conversations} activeId={chat.activeId}
@@ -62,7 +61,7 @@ export function ChatConsole() {
         </div>
 
         {sidebarOpen ? (
-          <div className="fixed inset-0 z-40 lg:hidden">
+          <div className="fixed inset-0 z-40 lg:hidden animate-fade-in">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
             <div className="absolute inset-y-2 left-2 w-72 max-w-[85%] glass rounded-2xl overflow-hidden">
               <Sidebar
@@ -77,17 +76,16 @@ export function ChatConsole() {
           </div>
         ) : null}
 
-        {/* Center: chat console */}
         <main className="flex-1 flex flex-col min-w-0 glass rounded-2xl overflow-hidden relative">
-          <header className="lg:hidden flex items-center justify-between gap-2 p-3 border-b border-white/10">
+          <header className="lg:hidden flex items-center justify-between gap-2 p-3 border-b border-white/20">
             <div className="flex items-center gap-2">
-              <button onClick={() => setSidebarOpen(true)} className="btn-ghost" aria-label="Open menu">
+              <button onClick={() => setSidebarOpen(true)} className="btn-ghost active:scale-95" aria-label="Open menu">
                 <Menu className="h-5 w-5" />
               </button>
               <span className="font-semibold">GHOST <span className="sky-text">AI</span></span>
             </div>
-            <button onClick={() => setTrendingOpen(true)} className="btn-ghost" aria-label="Open trending">
-              <Flame className="h-5 w-5" />
+            <button onClick={() => setRailOpen(true)} className="btn-ghost active:scale-95" aria-label="Open pump.fun feed">
+              <Rocket className="h-5 w-5" />
             </button>
           </header>
 
@@ -95,16 +93,15 @@ export function ChatConsole() {
           <Composer value={input} onChange={setInput} onSend={handleSend} disabled={chat.pending} />
         </main>
 
-        {/* Right: trending rail */}
-        <div className="hidden xl:block w-64 shrink-0 glass rounded-2xl overflow-hidden">
-          <TrendingRail onPickToken={handlePickToken} />
+        <div className="hidden xl:block w-72 shrink-0 glass rounded-2xl overflow-hidden">
+          <PumpFunRail onPickToken={handlePickPumpToken} />
         </div>
 
-        {trendingOpen ? (
-          <div className="fixed inset-0 z-40 xl:hidden">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setTrendingOpen(false)} />
+        {railOpen ? (
+          <div className="fixed inset-0 z-40 xl:hidden animate-fade-in">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setRailOpen(false)} />
             <div className="absolute inset-y-2 right-2 w-72 max-w-[85%] glass rounded-2xl overflow-hidden">
-              <TrendingRail onPickToken={handlePickToken} onClose={() => setTrendingOpen(false)} />
+              <PumpFunRail onPickToken={handlePickPumpToken} onClose={() => setRailOpen(false)} />
             </div>
           </div>
         ) : null}
