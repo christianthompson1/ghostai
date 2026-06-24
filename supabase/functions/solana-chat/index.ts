@@ -289,14 +289,15 @@ async function txDecode(signature: string) {
 
 // ---------------- Pump.fun graduation tracker ----------------
 async function pumpfunGraduating(limit = 20) {
-  // Try the public frontend API; structure: array of coins with completion%
-  const urls = [
+  return cached(`pumpfun:${limit}`, 25_000, async () => {
+   const urls = [
     `https://frontend-api-v3.pump.fun/coins?offset=0&limit=${limit}&sort=progress&order=DESC&includeNsfw=false`,
+    `https://frontend-api-v2.pump.fun/coins?offset=0&limit=${limit}&sort=progress&order=DESC&includeNsfw=false`,
     `https://frontend-api.pump.fun/coins?offset=0&limit=${limit}&sort=progress&order=DESC&includeNsfw=false`,
-  ];
-  let coins: any[] | null = null;
-  let lastErr: any = null;
-  for (const u of urls) {
+   ];
+   let coins: any[] | null = null;
+   let lastErr: any = null;
+   for (const u of urls) {
     try {
       const r = await fetch(u, {
         headers: {
@@ -309,41 +310,69 @@ async function pumpfunGraduating(limit = 20) {
       if (!r.ok) { lastErr = `${r.status}`; continue; }
       const j = await r.json();
       coins = Array.isArray(j) ? j : (j?.coins ?? null);
-      if (coins) break;
+      if (coins?.length) break;
     } catch (e) { lastErr = e; }
-  }
-  if (!coins) {
-    logErr("pumpfun", lastErr);
+   }
+   if (coins?.length) {
+    return coins.slice(0, limit).map((c: any) => {
+      const mc = c.usd_market_cap ?? c.market_cap ?? 0;
+      const progress = Math.min(100, (mc / 69000) * 100);
+      return {
+        mint: c.mint, name: c.name, symbol: c.symbol,
+        image: c.image_uri ?? c.image ?? null,
+        progress: Number(progress.toFixed(2)),
+        marketCap: mc,
+        createdAt: c.created_timestamp ?? null,
+        description: c.description ?? null,
+      };
+    });
+   }
+
+   // Fallback: GeckoTerminal — pump.fun pools sorted by FDV proximity to graduation
+   logErr("pumpfun-fallback", `pumpfun unreachable: ${lastErr}; using GeckoTerminal`);
+   try {
+    const r = await fetch(
+      `https://api.geckoterminal.com/api/v2/networks/solana/dexes/pumpfun/pools?page=1&sort=h24_volume_usd_desc`,
+      { headers: { accept: "application/json" } }
+    );
+    if (!r.ok) throw new Error(`gt ${r.status}`);
+    const j = await r.json();
+    const pools: any[] = j?.data ?? [];
+    return pools.slice(0, limit).map((p: any) => {
+      const a = p.attributes ?? {};
+      const mc = Number(a.fdv_usd ?? a.market_cap_usd ?? 0);
+      const progress = Math.min(100, (mc / 69000) * 100);
+      const baseMint = (a.address ?? "").split("_")[0] ?? a.address;
+      return {
+        mint: baseMint,
+        name: a.name ?? "",
+        symbol: (a.name ?? "").split("/")[0]?.trim() ?? "",
+        image: null,
+        progress: Number(progress.toFixed(2)),
+        marketCap: mc,
+        createdAt: a.pool_created_at ?? null,
+        description: null,
+      };
+    }).sort((a, b) => b.progress - a.progress);
+   } catch (e) {
+    logErr("pumpfun", e);
     throw new ClientError("Pump.fun feed temporarily unavailable");
-  }
-  return coins.slice(0, limit).map((c: any) => {
-    // bonding curve: market_cap progress; pump uses 'usd_market_cap' or 'market_cap'
-    const mc = c.usd_market_cap ?? c.market_cap ?? 0;
-    // graduation target ~$69k market cap on bonding curve
-    const progress = Math.min(100, (mc / 69000) * 100);
-    return {
-      mint: c.mint,
-      name: c.name,
-      symbol: c.symbol,
-      image: c.image_uri ?? c.image ?? null,
-      progress: Number(progress.toFixed(2)),
-      marketCap: mc,
-      createdAt: c.created_timestamp ?? null,
-      description: c.description ?? null,
-    };
+   }
   });
 }
 
 // ---------------- Trending (legacy compat) ----------------
 async function trending(limit = 12) {
-  const r = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=solana-ecosystem&order=volume_desc&per_page=${limit}&page=1&price_change_percentage=24h`);
-  if (!r.ok) throw new Error("Trending unavailable");
-  const data = await r.json();
-  return (data as any[]).map((c) => ({
-    id: c.id, symbol: (c.symbol ?? "").toUpperCase(), name: c.name, image: c.image,
-    price: c.current_price, change24h: c.price_change_percentage_24h,
-    marketCap: c.market_cap, volume: c.total_volume,
-  }));
+  return cached(`trending:${limit}`, 30_000, async () => {
+    const r = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=solana-ecosystem&order=volume_desc&per_page=${limit}&page=1&price_change_percentage=24h`);
+    if (!r.ok) throw new Error("Trending unavailable");
+    const data = await r.json();
+    return (data as any[]).map((c) => ({
+      id: c.id, symbol: (c.symbol ?? "").toUpperCase(), name: c.name, image: c.image,
+      price: c.current_price, change24h: c.price_change_percentage_24h,
+      marketCap: c.market_cap, volume: c.total_volume,
+    }));
+  });
 }
 
 async function marketPulse() {
