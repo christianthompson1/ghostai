@@ -14,34 +14,45 @@ export function PriceChartCard({ data, messageId, partIndex }: { data: any; mess
 
   const currentTf = (TIMEFRAMES.includes(data.timeframe as TF) ? data.timeframe : "1D") as TF;
 
+  const hasPoints = Array.isArray(data.points) && data.points.length > 1;
+  const [canvasFailed, setCanvasFailed] = useState(false);
+
   useEffect(() => {
-    if (!ref.current) return;
-    const isDark = document.documentElement.classList.contains("dark");
-    const chart = createChart(ref.current, {
-      autoSize: true,
-      layout: { background: { color: "transparent" }, textColor: isDark ? "#cbd5e1" : "#475569", fontSize: 11 },
-      grid: {
-        vertLines: { color: isDark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.05)" },
-        horzLines: { color: isDark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.05)" },
-      },
-      rightPriceScale: { borderVisible: false },
-      timeScale: {
-        borderVisible: false,
-        timeVisible: ["1m", "5m", "1h", "1D", "7D"].includes(currentTf),
-      },
-    });
-    const series = chart.addSeries(AreaSeries, {
-      lineColor: "#38bdf8",
-      topColor: "rgba(56,189,248,0.4)",
-      bottomColor: "rgba(56,189,248,0)",
-      lineWidth: 2,
-    }) as ISeriesApi<"Area">;
-    series.setData(data.points ?? []);
-    chart.timeScale().fitContent();
-    chartRef.current = chart;
-    setFadeKey((k) => k + 1);
-    return () => { chart.remove(); chartRef.current = null; };
-  }, [data.points, currentTf]);
+    if (!ref.current || !hasPoints) return;
+    let cancelled = false;
+    try {
+      const isDark = document.documentElement.classList.contains("dark");
+      const chart = createChart(ref.current, {
+        autoSize: true,
+        layout: { background: { color: "transparent" }, textColor: isDark ? "#cbd5e1" : "#475569", fontSize: 11 },
+        grid: {
+          vertLines: { color: isDark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.05)" },
+          horzLines: { color: isDark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.05)" },
+        },
+        rightPriceScale: { borderVisible: false },
+        timeScale: {
+          borderVisible: false,
+          timeVisible: ["1m", "5m", "1h", "1D", "7D"].includes(currentTf),
+        },
+      });
+      const series = chart.addSeries(AreaSeries, {
+        lineColor: "#38bdf8",
+        topColor: "rgba(56,189,248,0.4)",
+        bottomColor: "rgba(56,189,248,0)",
+        lineWidth: 2,
+      }) as ISeriesApi<"Area">;
+      series.setData(data.points ?? []);
+      chart.timeScale().fitContent();
+      chartRef.current = chart;
+      setFadeKey((k) => k + 1);
+      return () => { if (!cancelled) { chart.remove(); chartRef.current = null; } };
+    } catch (e) {
+      console.error("[PriceChart] render failed, falling back to iframe", e);
+      setCanvasFailed(true);
+    }
+    return () => { cancelled = true; };
+  }, [data.points, currentTf, hasPoints]);
+
 
   const positive = (data.change ?? 0) >= 0;
 
@@ -113,8 +124,23 @@ export function PriceChartCard({ data, messageId, partIndex }: { data: any; mess
             <div className="spinner" />
           </div>
         ) : null}
-        <div key={fadeKey} ref={ref} className="h-full w-full animate-fade-in" />
+        {hasPoints && !canvasFailed ? (
+          <div key={fadeKey} ref={ref} className="h-full w-full animate-fade-in" />
+        ) : data.poolAddress || data.address ? (
+          <iframe
+            key={`dex-${data.address}-${currentTf}`}
+            title="DexScreener chart"
+            src={`https://dexscreener.com/solana/${data.poolAddress ?? data.address}?embed=1&theme=dark&trades=0&info=0&chartLeftToolbar=0`}
+            className="h-full w-full border-0 animate-fade-in"
+            loading="lazy"
+          />
+        ) : (
+          <div className="h-full w-full grid place-items-center text-xs text-muted-foreground">
+            No chart data available for this token yet.
+          </div>
+        )}
       </div>
+
     </div>
   );
 }

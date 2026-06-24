@@ -62,7 +62,7 @@ function heliusApiKey() {
   return new URL(HELIUS_RPC_URL).searchParams.get("api-key") ?? "";
 }
 
-async function gemini(prompt: string, system?: string, model = "gemini-2.5-flash", maxTokens = 1600) {
+async function geminiOnce(model: string, prompt: string, system: string | undefined, maxTokens: number) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
   const body: any = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -76,11 +76,31 @@ async function gemini(prompt: string, system?: string, model = "gemini-2.5-flash
   });
   if (!r.ok) {
     const txt = await r.text();
-    logErr("gemini", `${r.status} ${txt.slice(0, 500)}`);
-    throw new Error("AI model unavailable");
+    const err: any = new Error(`gemini ${model} ${r.status}`);
+    err.status = r.status;
+    err.body = txt.slice(0, 400);
+    throw err;
   }
   const j = await r.json();
   return j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("\n") ?? "";
+}
+
+async function gemini(prompt: string, system?: string, _model = "gemini-2.5-flash", maxTokens = 1600) {
+  // Try a cascade of models so a single overloaded endpoint doesn't break chat.
+  const cascade = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"];
+  let lastErr: any = null;
+  for (const m of cascade) {
+    try {
+      const out = await geminiOnce(m, prompt, system, maxTokens);
+      if (out) return out;
+    } catch (e: any) {
+      lastErr = e;
+      logErr(`gemini:${m}`, `${e.status ?? ""} ${e.body ?? e.message ?? ""}`);
+      // Only retry on transient failures
+      if (e.status && ![429, 500, 502, 503, 504].includes(e.status)) break;
+    }
+  }
+  throw new Error(lastErr?.message ?? "AI model unavailable");
 }
 
 // ---------------- DexScreener resolver ----------------
@@ -159,21 +179,55 @@ async function rugCheck(address: string) {
   });
 }
 
-// ---------------- Token Intel (DexScreener + RugCheck) ----------------
+// ---------------- Helius DAS (on-chain truth) ----------------
+async function heliusAsset(address: string) {
+  return cached(`das:${address}`, 60_000, async () => {
+    try {
+      const r = await rpc("getAsset", [address]);
+      const tokenInfo = r?.token_info ?? null;
+      const decimals = tokenInfo?.decimals ?? null;
+      const supplyRaw = tokenInfo?.supply ?? null;
+      const supply = supplyRaw != null && decimals != null
+        ? Number(supplyRaw) / Math.pow(10, decimals)
+        : null;
+      return {
+        decimals,
+        supply,
+        mintAuthority: tokenInfo?.mint_authority ?? null,
+        freezeAuthority: tokenInfo?.freeze_authority ?? null,
+        priceUsd: tokenInfo?.price_info?.price_per_token ?? null,
+        symbol: tokenInfo?.symbol ?? null,
+      };
+    } catch (e) { logErr("das", e); return null; }
+  });
+}
+
+// ---------------- Token Intel (DexScreener + RugCheck + Helius DAS) ----------------
 async function tokenIntel(input: string) {
   const resolved = await dexResolve(input);
   if (!resolved) throw new ClientError("Token not found on DexScreener");
-  const rug = await rugCheck(resolved.address);
+  const [rug, das] = await Promise.all([
+    rugCheck(resolved.address),
+    heliusAsset(resolved.address),
+  ]);
+
+  // Prefer on-chain Helius values; fall back to RugCheck data.
+  const decimals = das?.decimals ?? rug?.decimals ?? null;
+  const supply = das?.supply ?? (rug?.supply != null && decimals != null ? Number(rug.supply) / Math.pow(10, decimals) : rug?.supply ?? null);
+  const mintAuthority = das?.mintAuthority ?? rug?.mintAuthority ?? null;
+  const freezeAuthority = das?.freezeAuthority ?? rug?.freezeAuthority ?? null;
+  const price = resolved.priceUsd ?? das?.priceUsd ?? null;
+  const marketCap = (price != null && supply != null) ? price * supply : resolved.marketCap;
 
   // Compose risk
   let score = rug?.score ?? 0;
-  if (rug?.mintAuthority) score = Math.max(score, 65);
+  if (mintAuthority) score = Math.max(score, 65);
   if (rug?.rugged) score = 100;
   score = Math.min(100, Math.max(0, score));
   const risk = score >= 60 ? "HIGH" : score >= 35 ? "MEDIUM" : score > 0 ? "LOW" : "MINIMAL";
 
   const summary = await gemini(
-    `Write a 3-4 sentence professional security & overview audit. Token: ${resolved.name} (${resolved.symbol}). Risk score: ${risk} (${score}/100). Mint authority ${rug?.mintAuthority ? "ACTIVE — supply can be inflated" : "revoked"}. Freeze authority ${rug?.freezeAuthority ? "ACTIVE — wallets can be frozen" : "revoked"}. Liquidity: $${(rug?.totalMarketLiquidity ?? resolved.liquidityUsd ?? 0).toLocaleString()}. LP providers: ${rug?.totalLPProviders ?? "n/a"}. Market cap: $${resolved.marketCap?.toLocaleString() ?? "n/a"}. Top risks: ${(rug?.risks ?? []).map((r: any) => r.name).join(", ") || "none flagged"}.`,
+    `Write a 3-4 sentence professional security & overview audit. Token: ${resolved.name} (${resolved.symbol}). Risk score: ${risk} (${score}/100). Mint authority ${mintAuthority ? "ACTIVE — supply can be inflated" : "revoked"}. Freeze authority ${freezeAuthority ? "ACTIVE — wallets can be frozen" : "revoked"}. Liquidity: $${(rug?.totalMarketLiquidity ?? resolved.liquidityUsd ?? 0).toLocaleString()}. LP providers: ${rug?.totalLPProviders ?? "n/a"}. Market cap: $${marketCap?.toLocaleString() ?? "n/a"}. Top risks: ${(rug?.risks ?? []).map((r: any) => r.name).join(", ") || "none flagged"}.`,
     "You are GHOST AI's on-chain security analyst. Be direct, concrete, no disclaimers, no hype."
   ).catch((e) => { logErr("intel-summary", e); return ""; });
 
@@ -185,15 +239,15 @@ async function tokenIntel(input: string) {
     image: resolved.image,
     poolAddress: resolved.poolAddress,
     pairUrl: resolved.pairUrl,
-    price: resolved.priceUsd,
+    price,
     change24h: resolved.change24h,
-    marketCap: resolved.marketCap,
+    marketCap,
     liquidity: rug?.totalMarketLiquidity ?? resolved.liquidityUsd,
     volume24h: resolved.volume24h,
-    supply: rug?.supply ?? null,
-    decimals: rug?.decimals ?? null,
-    mintAuthority: rug?.mintAuthority ?? null,
-    freezeAuthority: rug?.freezeAuthority ?? null,
+    supply,
+    decimals,
+    mintAuthority,
+    freezeAuthority,
     lpProviders: rug?.totalLPProviders ?? null,
     lpLockedPct: rug?.lpLockedPct ?? null,
     rugged: rug?.rugged ?? false,
@@ -414,15 +468,23 @@ function classify(text: string): { kind: string; query?: string; signature?: str
   if (wantsPump) return { kind: "pumpfun" };
   if (wantsPulse) return { kind: "pulse" };
 
-  // Extract token query: $TICKER, raw address, or last quoted word
+  // Extract token query: $TICKER, raw address, or bare ticker word in chart/audit intents
   const addrMatch = text.match(ADDR_RE);
   const dollarMatch = text.match(/\$([A-Za-z][A-Za-z0-9]{1,10})/);
-  const query = addrMatch?.[0] ?? dollarMatch?.[1] ?? null;
+  const STOP = new Set(["show","me","the","a","an","of","for","please","chart","price","graph","candle","audit","security","rug","safe","safety","check","overview","holders","holder","authority","analyze","analyse","get","what","is","on","today","now","latest","token","coin","crypto","trend","pulse","market","movers","mover","pump","graduate","graduating","bonding","my","your"]);
+  let bareTicker: string | null = null;
+  if ((wantsChart || wantsAudit) && !addrMatch && !dollarMatch) {
+    const words = (text.match(/[A-Za-z][A-Za-z0-9]{1,9}/g) ?? []).filter((w) => !STOP.has(w.toLowerCase()));
+    if (words.length) bareTicker = words[words.length - 1];
+  }
+  const query = addrMatch?.[0] ?? dollarMatch?.[1] ?? bareTicker ?? null;
 
   if (wantsChart && query) return { kind: "chart", query, timeframe };
   if (wantsAudit && query) return { kind: "token", query };
   if (addrMatch) return { kind: "token", query: addrMatch[0] };
   if (dollarMatch) return { kind: "token", query: dollarMatch[1] };
+  if (bareTicker) return { kind: "token", query: bareTicker };
+
 
   return { kind: "chat" };
 }
@@ -575,12 +637,26 @@ Deno.serve(async (req) => {
     } catch (e) {
       logErr(`intent:${intent.kind}`, e);
       if (intent.kind === "chat") {
-        parts.push({ type: "text", text: "I hit a temporary issue reaching my reasoning model. Please try again in a moment." });
+        // Reasoning model down — try to salvage by extracting a ticker/sig and falling back to live data.
+        const sig = message.match(SIG_RE);
+        const addr = message.match(ADDR_RE);
+        const dollar = message.match(/\$([A-Za-z][A-Za-z0-9]{1,10})/);
+        const fallbackQ = sig?.[0] ?? addr?.[0] ?? dollar?.[1] ?? null;
+        let recovered = false;
+        if (sig) {
+          try { parts.push(await txDecode(sig[0])); recovered = true; } catch (e2) { logErr("fallback:tx", e2); }
+        } else if (fallbackQ) {
+          try { parts.push(await tokenIntel(fallbackQ)); recovered = true; } catch (e2) { logErr("fallback:intel", e2); }
+        }
+        if (!recovered) {
+          parts.push({ type: "text", text: "My reasoning model is briefly overloaded. Try a direct query like `BONK chart`, `$JUP audit`, or paste a token mint / transaction signature." });
+        }
       } else {
         const msg = e instanceof ClientError ? e.message : "We couldn't complete that request. Please try again.";
         parts.push({ type: "error", message: msg });
       }
     }
+
 
     return new Response(JSON.stringify({ parts }), {
       headers: { ...corsHeaders, "content-type": "application/json" },
