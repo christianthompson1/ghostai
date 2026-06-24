@@ -603,12 +603,26 @@ Deno.serve(async (req) => {
     } catch (e) {
       logErr(`intent:${intent.kind}`, e);
       if (intent.kind === "chat") {
-        parts.push({ type: "text", text: "I hit a temporary issue reaching my reasoning model. Please try again in a moment." });
+        // Reasoning model down — try to salvage by extracting a ticker/sig and falling back to live data.
+        const sig = message.match(SIG_RE);
+        const addr = message.match(ADDR_RE);
+        const dollar = message.match(/\$([A-Za-z][A-Za-z0-9]{1,10})/);
+        const fallbackQ = sig?.[0] ?? addr?.[0] ?? dollar?.[1] ?? null;
+        let recovered = false;
+        if (sig) {
+          try { parts.push(await txDecode(sig[0])); recovered = true; } catch (e2) { logErr("fallback:tx", e2); }
+        } else if (fallbackQ) {
+          try { parts.push(await tokenIntel(fallbackQ)); recovered = true; } catch (e2) { logErr("fallback:intel", e2); }
+        }
+        if (!recovered) {
+          parts.push({ type: "text", text: "My reasoning model is briefly overloaded. Try a direct query like `BONK chart`, `$JUP audit`, or paste a token mint / transaction signature." });
+        }
       } else {
         const msg = e instanceof ClientError ? e.message : "We couldn't complete that request. Please try again.";
         parts.push({ type: "error", message: msg });
       }
     }
+
 
     return new Response(JSON.stringify({ parts }), {
       headers: { ...corsHeaders, "content-type": "application/json" },
