@@ -25,6 +25,27 @@ function logErr(scope: string, e: unknown) {
   console.error(`[solana-chat:${scope}]`, e instanceof Error ? e.stack ?? e.message : e);
 }
 
+// ---------------- TTL cache + in-flight dedup ----------------
+type CacheEntry = { v: any; exp: number };
+const _cache = new Map<string, CacheEntry>();
+const _inflight = new Map<string, Promise<any>>();
+async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const hit = _cache.get(key);
+  const now = Date.now();
+  if (hit && hit.exp > now) return hit.v as T;
+  const pending = _inflight.get(key);
+  if (pending) return pending as Promise<T>;
+  const p = (async () => {
+    try {
+      const v = await fn();
+      _cache.set(key, { v, exp: Date.now() + ttlMs });
+      return v;
+    } finally { _inflight.delete(key); }
+  })();
+  _inflight.set(key, p);
+  return p;
+}
+
 async function rpc(method: string, params: any[]) {
   const r = await fetch(HELIUS_RPC_URL, {
     method: "POST",
@@ -80,37 +101,40 @@ type Resolved = {
 async function dexResolve(query: string): Promise<Resolved | null> {
   const q = query.trim();
   if (!q) return null;
-  // If raw mint, fetch by tokens endpoint first
   const isAddr = ADDR_RE.test(q) && q.length >= 32 && q.length <= 44;
+  const cleanQ = q.replace(/^\$/, "").toLowerCase();
   const url = isAddr
     ? `https://api.dexscreener.com/latest/dex/tokens/${q}`
-    : `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q.replace(/^\$/, ""))}`;
-  const r = await fetch(url);
-  if (!r.ok) return null;
-  const j = await r.json();
-  const pairs: any[] = (j?.pairs ?? []).filter((p: any) => p.chainId === "solana");
-  if (!pairs.length) return null;
-  pairs.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0));
-  const top = pairs[0];
-  const base = top.baseToken;
-  return {
-    address: base.address,
-    symbol: (base.symbol ?? "").toUpperCase(),
-    name: base.name ?? base.symbol,
-    image: top.info?.imageUrl ?? null,
-    poolAddress: top.pairAddress ?? null,
-    priceUsd: top.priceUsd ? Number(top.priceUsd) : null,
-    change24h: top.priceChange?.h24 ?? null,
-    marketCap: top.marketCap ?? top.fdv ?? null,
-    liquidityUsd: top.liquidity?.usd ?? null,
-    volume24h: top.volume?.h24 ?? null,
-    pairUrl: top.url ?? null,
-  };
+    : `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(cleanQ)}`;
+  return cached(`dex:${url}`, 20_000, async () => {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const pairs: any[] = (j?.pairs ?? []).filter((p: any) => p.chainId === "solana");
+    if (!pairs.length) return null;
+    pairs.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0));
+    const top = pairs[0];
+    const base = top.baseToken;
+    return {
+      address: base.address,
+      symbol: (base.symbol ?? "").toUpperCase(),
+      name: base.name ?? base.symbol,
+      image: top.info?.imageUrl ?? null,
+      poolAddress: top.pairAddress ?? null,
+      priceUsd: top.priceUsd ? Number(top.priceUsd) : null,
+      change24h: top.priceChange?.h24 ?? null,
+      marketCap: top.marketCap ?? top.fdv ?? null,
+      liquidityUsd: top.liquidity?.usd ?? null,
+      volume24h: top.volume?.h24 ?? null,
+      pairUrl: top.url ?? null,
+    } as Resolved;
+  });
 }
 
 // ---------------- RugCheck ----------------
 async function rugCheck(address: string) {
-  try {
+  return cached(`rug:${address}`, 60_000, async () => {
+   try {
     const [summaryR, fullR] = await Promise.all([
       fetch(`https://api.rugcheck.xyz/v1/tokens/${address}/report/summary`),
       fetch(`https://api.rugcheck.xyz/v1/tokens/${address}/report`),
@@ -131,10 +155,8 @@ async function rugCheck(address: string) {
       rugged: full?.rugged ?? false,
       lpLockedPct: full?.markets?.[0]?.lp?.lpLockedPct ?? null,
     };
-  } catch (e) {
-    logErr("rugcheck", e);
-    return null;
-  }
+   } catch (e) { logErr("rugcheck", e); return null; }
+  });
 }
 
 // ---------------- Token Intel (DexScreener + RugCheck) ----------------
@@ -206,10 +228,12 @@ async function priceChart(opts: { input?: string; resolved?: Resolved | null; ti
 
   const cfg = TF_CONFIG[tf];
   const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools/${resolved.poolAddress}/ohlcv/${cfg.tf}?aggregate=${cfg.agg}&limit=${cfg.limit}`;
-  const r = await fetch(url, { headers: { accept: "application/json" } });
-  if (!r.ok) throw new ClientError("Price data unavailable");
-  const j = await r.json();
-  const raw: number[][] = j?.data?.attributes?.ohlcv_list ?? [];
+  const raw = await cached<number[][]>(`gt:${url}`, 15_000, async () => {
+    const r = await fetch(url, { headers: { accept: "application/json" } });
+    if (!r.ok) throw new ClientError("Price data unavailable");
+    const j = await r.json();
+    return j?.data?.attributes?.ohlcv_list ?? [];
+  });
   const seen = new Set<number>();
   const points = raw
     .map((row) => ({ time: row[0], value: row[4] }))
@@ -265,14 +289,15 @@ async function txDecode(signature: string) {
 
 // ---------------- Pump.fun graduation tracker ----------------
 async function pumpfunGraduating(limit = 20) {
-  // Try the public frontend API; structure: array of coins with completion%
-  const urls = [
+  return cached(`pumpfun:${limit}`, 25_000, async () => {
+   const urls = [
     `https://frontend-api-v3.pump.fun/coins?offset=0&limit=${limit}&sort=progress&order=DESC&includeNsfw=false`,
+    `https://frontend-api-v2.pump.fun/coins?offset=0&limit=${limit}&sort=progress&order=DESC&includeNsfw=false`,
     `https://frontend-api.pump.fun/coins?offset=0&limit=${limit}&sort=progress&order=DESC&includeNsfw=false`,
-  ];
-  let coins: any[] | null = null;
-  let lastErr: any = null;
-  for (const u of urls) {
+   ];
+   let coins: any[] | null = null;
+   let lastErr: any = null;
+   for (const u of urls) {
     try {
       const r = await fetch(u, {
         headers: {
@@ -285,41 +310,72 @@ async function pumpfunGraduating(limit = 20) {
       if (!r.ok) { lastErr = `${r.status}`; continue; }
       const j = await r.json();
       coins = Array.isArray(j) ? j : (j?.coins ?? null);
-      if (coins) break;
+      if (coins?.length) break;
     } catch (e) { lastErr = e; }
-  }
-  if (!coins) {
-    logErr("pumpfun", lastErr);
+   }
+   if (coins?.length) {
+    return coins.slice(0, limit).map((c: any) => {
+      const mc = c.usd_market_cap ?? c.market_cap ?? 0;
+      const progress = Math.min(100, (mc / 69000) * 100);
+      return {
+        mint: c.mint, name: c.name, symbol: c.symbol,
+        image: c.image_uri ?? c.image ?? null,
+        progress: Number(progress.toFixed(2)),
+        marketCap: mc,
+        createdAt: c.created_timestamp ?? null,
+        description: c.description ?? null,
+      };
+    });
+   }
+
+   // Fallback: GeckoTerminal pump-fun pools with base_token included
+   logErr("pumpfun-fallback", `pumpfun unreachable: ${lastErr}; using GeckoTerminal`);
+   try {
+    const r = await fetch(
+      `https://api.geckoterminal.com/api/v2/networks/solana/dexes/pump-fun/pools?page=1&sort=h24_volume_usd_desc&include=base_token`,
+      { headers: { accept: "application/json" } }
+    );
+    if (!r.ok) throw new Error(`gt ${r.status}`);
+    const j = await r.json();
+    const pools: any[] = j?.data ?? [];
+    const included: any[] = j?.included ?? [];
+    const tokById = new Map(included.filter((x) => x.type === "token").map((x) => [x.id, x.attributes]));
+    return pools.slice(0, limit).map((p: any) => {
+      const a = p.attributes ?? {};
+      const tokId = p.relationships?.base_token?.data?.id;
+      const tok = tokId ? tokById.get(tokId) : null;
+      const mc = Number(a.fdv_usd ?? a.market_cap_usd ?? 0);
+      const progress = Math.min(100, (mc / 69000) * 100);
+      return {
+        mint: tok?.address ?? "",
+        name: tok?.name ?? a.name ?? "",
+        symbol: tok?.symbol ?? "",
+        image: tok?.image_url ?? null,
+        progress: Number(progress.toFixed(2)),
+        marketCap: mc,
+        createdAt: a.pool_created_at ?? null,
+        description: null,
+      };
+    }).filter((c) => c.mint).sort((a, b) => b.progress - a.progress);
+   } catch (e) {
+    logErr("pumpfun", e);
     throw new ClientError("Pump.fun feed temporarily unavailable");
-  }
-  return coins.slice(0, limit).map((c: any) => {
-    // bonding curve: market_cap progress; pump uses 'usd_market_cap' or 'market_cap'
-    const mc = c.usd_market_cap ?? c.market_cap ?? 0;
-    // graduation target ~$69k market cap on bonding curve
-    const progress = Math.min(100, (mc / 69000) * 100);
-    return {
-      mint: c.mint,
-      name: c.name,
-      symbol: c.symbol,
-      image: c.image_uri ?? c.image ?? null,
-      progress: Number(progress.toFixed(2)),
-      marketCap: mc,
-      createdAt: c.created_timestamp ?? null,
-      description: c.description ?? null,
-    };
+   }
   });
 }
 
 // ---------------- Trending (legacy compat) ----------------
 async function trending(limit = 12) {
-  const r = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=solana-ecosystem&order=volume_desc&per_page=${limit}&page=1&price_change_percentage=24h`);
-  if (!r.ok) throw new Error("Trending unavailable");
-  const data = await r.json();
-  return (data as any[]).map((c) => ({
-    id: c.id, symbol: (c.symbol ?? "").toUpperCase(), name: c.name, image: c.image,
-    price: c.current_price, change24h: c.price_change_percentage_24h,
-    marketCap: c.market_cap, volume: c.total_volume,
-  }));
+  return cached(`trending:${limit}`, 30_000, async () => {
+    const r = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&category=solana-ecosystem&order=volume_desc&per_page=${limit}&page=1&price_change_percentage=24h`);
+    if (!r.ok) throw new Error("Trending unavailable");
+    const data = await r.json();
+    return (data as any[]).map((c) => ({
+      id: c.id, symbol: (c.symbol ?? "").toUpperCase(), name: c.name, image: c.image,
+      price: c.current_price, change24h: c.price_change_percentage_24h,
+      marketCap: c.market_cap, volume: c.total_volume,
+    }));
+  });
 }
 
 async function marketPulse() {
