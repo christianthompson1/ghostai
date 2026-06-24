@@ -101,37 +101,40 @@ type Resolved = {
 async function dexResolve(query: string): Promise<Resolved | null> {
   const q = query.trim();
   if (!q) return null;
-  // If raw mint, fetch by tokens endpoint first
   const isAddr = ADDR_RE.test(q) && q.length >= 32 && q.length <= 44;
+  const cleanQ = q.replace(/^\$/, "").toLowerCase();
   const url = isAddr
     ? `https://api.dexscreener.com/latest/dex/tokens/${q}`
-    : `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(q.replace(/^\$/, ""))}`;
-  const r = await fetch(url);
-  if (!r.ok) return null;
-  const j = await r.json();
-  const pairs: any[] = (j?.pairs ?? []).filter((p: any) => p.chainId === "solana");
-  if (!pairs.length) return null;
-  pairs.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0));
-  const top = pairs[0];
-  const base = top.baseToken;
-  return {
-    address: base.address,
-    symbol: (base.symbol ?? "").toUpperCase(),
-    name: base.name ?? base.symbol,
-    image: top.info?.imageUrl ?? null,
-    poolAddress: top.pairAddress ?? null,
-    priceUsd: top.priceUsd ? Number(top.priceUsd) : null,
-    change24h: top.priceChange?.h24 ?? null,
-    marketCap: top.marketCap ?? top.fdv ?? null,
-    liquidityUsd: top.liquidity?.usd ?? null,
-    volume24h: top.volume?.h24 ?? null,
-    pairUrl: top.url ?? null,
-  };
+    : `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(cleanQ)}`;
+  return cached(`dex:${url}`, 20_000, async () => {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const pairs: any[] = (j?.pairs ?? []).filter((p: any) => p.chainId === "solana");
+    if (!pairs.length) return null;
+    pairs.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0));
+    const top = pairs[0];
+    const base = top.baseToken;
+    return {
+      address: base.address,
+      symbol: (base.symbol ?? "").toUpperCase(),
+      name: base.name ?? base.symbol,
+      image: top.info?.imageUrl ?? null,
+      poolAddress: top.pairAddress ?? null,
+      priceUsd: top.priceUsd ? Number(top.priceUsd) : null,
+      change24h: top.priceChange?.h24 ?? null,
+      marketCap: top.marketCap ?? top.fdv ?? null,
+      liquidityUsd: top.liquidity?.usd ?? null,
+      volume24h: top.volume?.h24 ?? null,
+      pairUrl: top.url ?? null,
+    } as Resolved;
+  });
 }
 
 // ---------------- RugCheck ----------------
 async function rugCheck(address: string) {
-  try {
+  return cached(`rug:${address}`, 60_000, async () => {
+   try {
     const [summaryR, fullR] = await Promise.all([
       fetch(`https://api.rugcheck.xyz/v1/tokens/${address}/report/summary`),
       fetch(`https://api.rugcheck.xyz/v1/tokens/${address}/report`),
@@ -152,10 +155,8 @@ async function rugCheck(address: string) {
       rugged: full?.rugged ?? false,
       lpLockedPct: full?.markets?.[0]?.lp?.lpLockedPct ?? null,
     };
-  } catch (e) {
-    logErr("rugcheck", e);
-    return null;
-  }
+   } catch (e) { logErr("rugcheck", e); return null; }
+  });
 }
 
 // ---------------- Token Intel (DexScreener + RugCheck) ----------------
