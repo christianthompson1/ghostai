@@ -179,21 +179,55 @@ async function rugCheck(address: string) {
   });
 }
 
-// ---------------- Token Intel (DexScreener + RugCheck) ----------------
+// ---------------- Helius DAS (on-chain truth) ----------------
+async function heliusAsset(address: string) {
+  return cached(`das:${address}`, 60_000, async () => {
+    try {
+      const r = await rpc("getAsset", [address]);
+      const tokenInfo = r?.token_info ?? null;
+      const decimals = tokenInfo?.decimals ?? null;
+      const supplyRaw = tokenInfo?.supply ?? null;
+      const supply = supplyRaw != null && decimals != null
+        ? Number(supplyRaw) / Math.pow(10, decimals)
+        : null;
+      return {
+        decimals,
+        supply,
+        mintAuthority: tokenInfo?.mint_authority ?? null,
+        freezeAuthority: tokenInfo?.freeze_authority ?? null,
+        priceUsd: tokenInfo?.price_info?.price_per_token ?? null,
+        symbol: tokenInfo?.symbol ?? null,
+      };
+    } catch (e) { logErr("das", e); return null; }
+  });
+}
+
+// ---------------- Token Intel (DexScreener + RugCheck + Helius DAS) ----------------
 async function tokenIntel(input: string) {
   const resolved = await dexResolve(input);
   if (!resolved) throw new ClientError("Token not found on DexScreener");
-  const rug = await rugCheck(resolved.address);
+  const [rug, das] = await Promise.all([
+    rugCheck(resolved.address),
+    heliusAsset(resolved.address),
+  ]);
+
+  // Prefer on-chain Helius values; fall back to RugCheck data.
+  const decimals = das?.decimals ?? rug?.decimals ?? null;
+  const supply = das?.supply ?? (rug?.supply != null && decimals != null ? Number(rug.supply) / Math.pow(10, decimals) : rug?.supply ?? null);
+  const mintAuthority = das?.mintAuthority ?? rug?.mintAuthority ?? null;
+  const freezeAuthority = das?.freezeAuthority ?? rug?.freezeAuthority ?? null;
+  const price = resolved.priceUsd ?? das?.priceUsd ?? null;
+  const marketCap = (price != null && supply != null) ? price * supply : resolved.marketCap;
 
   // Compose risk
   let score = rug?.score ?? 0;
-  if (rug?.mintAuthority) score = Math.max(score, 65);
+  if (mintAuthority) score = Math.max(score, 65);
   if (rug?.rugged) score = 100;
   score = Math.min(100, Math.max(0, score));
   const risk = score >= 60 ? "HIGH" : score >= 35 ? "MEDIUM" : score > 0 ? "LOW" : "MINIMAL";
 
   const summary = await gemini(
-    `Write a 3-4 sentence professional security & overview audit. Token: ${resolved.name} (${resolved.symbol}). Risk score: ${risk} (${score}/100). Mint authority ${rug?.mintAuthority ? "ACTIVE — supply can be inflated" : "revoked"}. Freeze authority ${rug?.freezeAuthority ? "ACTIVE — wallets can be frozen" : "revoked"}. Liquidity: $${(rug?.totalMarketLiquidity ?? resolved.liquidityUsd ?? 0).toLocaleString()}. LP providers: ${rug?.totalLPProviders ?? "n/a"}. Market cap: $${resolved.marketCap?.toLocaleString() ?? "n/a"}. Top risks: ${(rug?.risks ?? []).map((r: any) => r.name).join(", ") || "none flagged"}.`,
+    `Write a 3-4 sentence professional security & overview audit. Token: ${resolved.name} (${resolved.symbol}). Risk score: ${risk} (${score}/100). Mint authority ${mintAuthority ? "ACTIVE — supply can be inflated" : "revoked"}. Freeze authority ${freezeAuthority ? "ACTIVE — wallets can be frozen" : "revoked"}. Liquidity: $${(rug?.totalMarketLiquidity ?? resolved.liquidityUsd ?? 0).toLocaleString()}. LP providers: ${rug?.totalLPProviders ?? "n/a"}. Market cap: $${marketCap?.toLocaleString() ?? "n/a"}. Top risks: ${(rug?.risks ?? []).map((r: any) => r.name).join(", ") || "none flagged"}.`,
     "You are GHOST AI's on-chain security analyst. Be direct, concrete, no disclaimers, no hype."
   ).catch((e) => { logErr("intel-summary", e); return ""; });
 
@@ -205,15 +239,15 @@ async function tokenIntel(input: string) {
     image: resolved.image,
     poolAddress: resolved.poolAddress,
     pairUrl: resolved.pairUrl,
-    price: resolved.priceUsd,
+    price,
     change24h: resolved.change24h,
-    marketCap: resolved.marketCap,
+    marketCap,
     liquidity: rug?.totalMarketLiquidity ?? resolved.liquidityUsd,
     volume24h: resolved.volume24h,
-    supply: rug?.supply ?? null,
-    decimals: rug?.decimals ?? null,
-    mintAuthority: rug?.mintAuthority ?? null,
-    freezeAuthority: rug?.freezeAuthority ?? null,
+    supply,
+    decimals,
+    mintAuthority,
+    freezeAuthority,
     lpProviders: rug?.totalLPProviders ?? null,
     lpLockedPct: rug?.lpLockedPct ?? null,
     rugged: rug?.rugged ?? false,
