@@ -328,32 +328,35 @@ async function pumpfunGraduating(limit = 20) {
     });
    }
 
-   // Fallback: GeckoTerminal — pump.fun pools sorted by FDV proximity to graduation
+   // Fallback: GeckoTerminal pump-fun pools with base_token included
    logErr("pumpfun-fallback", `pumpfun unreachable: ${lastErr}; using GeckoTerminal`);
    try {
     const r = await fetch(
-      `https://api.geckoterminal.com/api/v2/networks/solana/dexes/pumpfun/pools?page=1&sort=h24_volume_usd_desc`,
+      `https://api.geckoterminal.com/api/v2/networks/solana/dexes/pump-fun/pools?page=1&sort=h24_volume_usd_desc&include=base_token`,
       { headers: { accept: "application/json" } }
     );
     if (!r.ok) throw new Error(`gt ${r.status}`);
     const j = await r.json();
     const pools: any[] = j?.data ?? [];
+    const included: any[] = j?.included ?? [];
+    const tokById = new Map(included.filter((x) => x.type === "token").map((x) => [x.id, x.attributes]));
     return pools.slice(0, limit).map((p: any) => {
       const a = p.attributes ?? {};
+      const tokId = p.relationships?.base_token?.data?.id;
+      const tok = tokId ? tokById.get(tokId) : null;
       const mc = Number(a.fdv_usd ?? a.market_cap_usd ?? 0);
       const progress = Math.min(100, (mc / 69000) * 100);
-      const baseMint = (a.address ?? "").split("_")[0] ?? a.address;
       return {
-        mint: baseMint,
-        name: a.name ?? "",
-        symbol: (a.name ?? "").split("/")[0]?.trim() ?? "",
-        image: null,
+        mint: tok?.address ?? "",
+        name: tok?.name ?? a.name ?? "",
+        symbol: tok?.symbol ?? "",
+        image: tok?.image_url ?? null,
         progress: Number(progress.toFixed(2)),
         marketCap: mc,
         createdAt: a.pool_created_at ?? null,
         description: null,
       };
-    }).sort((a, b) => b.progress - a.progress);
+    }).filter((c) => c.mint).sort((a, b) => b.progress - a.progress);
    } catch (e) {
     logErr("pumpfun", e);
     throw new ClientError("Pump.fun feed temporarily unavailable");
