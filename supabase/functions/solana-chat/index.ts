@@ -434,15 +434,23 @@ function classify(text: string): { kind: string; query?: string; signature?: str
   if (wantsPump) return { kind: "pumpfun" };
   if (wantsPulse) return { kind: "pulse" };
 
-  // Extract token query: $TICKER, raw address, or last quoted word
+  // Extract token query: $TICKER, raw address, or bare ticker word in chart/audit intents
   const addrMatch = text.match(ADDR_RE);
   const dollarMatch = text.match(/\$([A-Za-z][A-Za-z0-9]{1,10})/);
-  const query = addrMatch?.[0] ?? dollarMatch?.[1] ?? null;
+  const STOP = new Set(["show","me","the","a","an","of","for","please","chart","price","graph","candle","audit","security","rug","safe","safety","check","overview","holders","holder","authority","analyze","analyse","get","what","is","on","today","now","latest","token","coin","crypto","trend","pulse","market","movers","mover","pump","graduate","graduating","bonding","my","your"]);
+  let bareTicker: string | null = null;
+  if ((wantsChart || wantsAudit) && !addrMatch && !dollarMatch) {
+    const words = (text.match(/[A-Za-z][A-Za-z0-9]{1,9}/g) ?? []).filter((w) => !STOP.has(w.toLowerCase()));
+    if (words.length) bareTicker = words[words.length - 1];
+  }
+  const query = addrMatch?.[0] ?? dollarMatch?.[1] ?? bareTicker ?? null;
 
   if (wantsChart && query) return { kind: "chart", query, timeframe };
   if (wantsAudit && query) return { kind: "token", query };
   if (addrMatch) return { kind: "token", query: addrMatch[0] };
   if (dollarMatch) return { kind: "token", query: dollarMatch[1] };
+  if (bareTicker) return { kind: "token", query: bareTicker };
+
 
   return { kind: "chat" };
 }
