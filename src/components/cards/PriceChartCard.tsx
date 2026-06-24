@@ -124,8 +124,23 @@ export function PriceChartCard({ data, messageId, partIndex }: { data: any; mess
             <div className="spinner" />
           </div>
         ) : null}
-        <div key={fadeKey} ref={ref} className="h-full w-full animate-fade-in" />
+        {hasPoints && !canvasFailed ? (
+          <div key={fadeKey} ref={ref} className="h-full w-full animate-fade-in" />
+        ) : data.poolAddress || data.address ? (
+          <iframe
+            key={`dex-${data.address}-${currentTf}`}
+            title="DexScreener chart"
+            src={`https://dexscreener.com/solana/${data.poolAddress ?? data.address}?embed=1&theme=dark&trades=0&info=0&chartLeftToolbar=0`}
+            className="h-full w-full border-0 animate-fade-in"
+            loading="lazy"
+          />
+        ) : (
+          <div className="h-full w-full grid place-items-center text-xs text-muted-foreground">
+            No chart data available for this token yet.
+          </div>
+        )}
       </div>
+
     </div>
   );
 }
