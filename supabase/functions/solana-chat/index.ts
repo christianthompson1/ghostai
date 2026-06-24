@@ -62,7 +62,7 @@ function heliusApiKey() {
   return new URL(HELIUS_RPC_URL).searchParams.get("api-key") ?? "";
 }
 
-async function gemini(prompt: string, system?: string, model = "gemini-2.5-flash", maxTokens = 1600) {
+async function geminiOnce(model: string, prompt: string, system: string | undefined, maxTokens: number) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
   const body: any = {
     contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -76,11 +76,31 @@ async function gemini(prompt: string, system?: string, model = "gemini-2.5-flash
   });
   if (!r.ok) {
     const txt = await r.text();
-    logErr("gemini", `${r.status} ${txt.slice(0, 500)}`);
-    throw new Error("AI model unavailable");
+    const err: any = new Error(`gemini ${model} ${r.status}`);
+    err.status = r.status;
+    err.body = txt.slice(0, 400);
+    throw err;
   }
   const j = await r.json();
   return j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("\n") ?? "";
+}
+
+async function gemini(prompt: string, system?: string, _model = "gemini-2.5-flash", maxTokens = 1600) {
+  // Try a cascade of models so a single overloaded endpoint doesn't break chat.
+  const cascade = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"];
+  let lastErr: any = null;
+  for (const m of cascade) {
+    try {
+      const out = await geminiOnce(m, prompt, system, maxTokens);
+      if (out) return out;
+    } catch (e: any) {
+      lastErr = e;
+      logErr(`gemini:${m}`, `${e.status ?? ""} ${e.body ?? e.message ?? ""}`);
+      // Only retry on transient failures
+      if (e.status && ![429, 500, 502, 503, 504].includes(e.status)) break;
+    }
+  }
+  throw new Error(lastErr?.message ?? "AI model unavailable");
 }
 
 // ---------------- DexScreener resolver ----------------
