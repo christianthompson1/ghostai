@@ -228,10 +228,12 @@ async function priceChart(opts: { input?: string; resolved?: Resolved | null; ti
 
   const cfg = TF_CONFIG[tf];
   const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools/${resolved.poolAddress}/ohlcv/${cfg.tf}?aggregate=${cfg.agg}&limit=${cfg.limit}`;
-  const r = await fetch(url, { headers: { accept: "application/json" } });
-  if (!r.ok) throw new ClientError("Price data unavailable");
-  const j = await r.json();
-  const raw: number[][] = j?.data?.attributes?.ohlcv_list ?? [];
+  const raw = await cached<number[][]>(`gt:${url}`, 15_000, async () => {
+    const r = await fetch(url, { headers: { accept: "application/json" } });
+    if (!r.ok) throw new ClientError("Price data unavailable");
+    const j = await r.json();
+    return j?.data?.attributes?.ohlcv_list ?? [];
+  });
   const seen = new Set<number>();
   const points = raw
     .map((row) => ({ time: row[0], value: row[4] }))
