@@ -25,6 +25,27 @@ function logErr(scope: string, e: unknown) {
   console.error(`[solana-chat:${scope}]`, e instanceof Error ? e.stack ?? e.message : e);
 }
 
+// ---------------- TTL cache + in-flight dedup ----------------
+type CacheEntry = { v: any; exp: number };
+const _cache = new Map<string, CacheEntry>();
+const _inflight = new Map<string, Promise<any>>();
+async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const hit = _cache.get(key);
+  const now = Date.now();
+  if (hit && hit.exp > now) return hit.v as T;
+  const pending = _inflight.get(key);
+  if (pending) return pending as Promise<T>;
+  const p = (async () => {
+    try {
+      const v = await fn();
+      _cache.set(key, { v, exp: Date.now() + ttlMs });
+      return v;
+    } finally { _inflight.delete(key); }
+  })();
+  _inflight.set(key, p);
+  return p;
+}
+
 async function rpc(method: string, params: any[]) {
   const r = await fetch(HELIUS_RPC_URL, {
     method: "POST",
