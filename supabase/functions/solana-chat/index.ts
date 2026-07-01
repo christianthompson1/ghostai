@@ -207,22 +207,54 @@ async function heliusAsset(address: string) {
   });
 }
 
-// ---------------- Token Intel (DexScreener + RugCheck + Helius DAS) ----------------
+// ---------------- Token Intel (DexScreener native + RugCheck + Helius DAS) ----------------
 async function tokenIntel(input: string) {
   const resolved = await dexResolve(input);
   if (!resolved) throw new ClientError("Token not found on DexScreener");
+  // Always re-hit the native DexScreener token endpoint using the resolved mint
+  // so audit numbers reflect the canonical multi-pool aggregate — critical for
+  // freshly graduated pump.fun tokens where search results can lag.
+  const dexNative = await cached(`dex-native:${resolved.address}`, 15_000, async () => {
+    try {
+      const r = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${resolved.address}`);
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) { logErr("dex-native", e); return null; }
+  });
+  const nativePairs: any[] = (dexNative?.pairs ?? []).filter((p: any) => p.chainId === "solana");
+  const topNative = nativePairs.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0] ?? null;
+  const nativeLiquidityUsd = nativePairs.reduce((s, p) => s + (p.liquidity?.usd ?? 0), 0);
+  const nativeVolume24h = nativePairs.reduce((s, p) => s + (p.volume?.h24 ?? 0), 0);
+  const nativeFdv = topNative?.fdv ?? null;
+  const nativeMcap = topNative?.marketCap ?? nativeFdv ?? null;
+  const nativePrice = topNative?.priceUsd ? Number(topNative.priceUsd) : null;
+
   const [rug, das] = await Promise.all([
     rugCheck(resolved.address),
     heliusAsset(resolved.address),
   ]);
 
-  // Prefer on-chain Helius values; fall back to RugCheck data.
+  // Decimals: prefer on-chain Helius DAS
   const decimals = das?.decimals ?? rug?.decimals ?? null;
-  const supply = das?.supply ?? (rug?.supply != null && decimals != null ? Number(rug.supply) / Math.pow(10, decimals) : rug?.supply ?? null);
+
+  // Total supply: Helius DAS on-chain truth first, then RugCheck (raw / 10^decimals).
+  const supply = das?.supply
+    ?? (rug?.supply != null && decimals != null ? Number(rug.supply) / Math.pow(10, decimals) : rug?.supply ?? null);
+
   const mintAuthority = das?.mintAuthority ?? rug?.mintAuthority ?? null;
   const freezeAuthority = das?.freezeAuthority ?? rug?.freezeAuthority ?? null;
-  const price = resolved.priceUsd ?? das?.priceUsd ?? null;
-  const marketCap = (price != null && supply != null) ? price * supply : resolved.marketCap;
+
+  // Price: DexScreener native (fresh pool tape) → resolved → DAS
+  const price = nativePrice ?? resolved.priceUsd ?? das?.priceUsd ?? null;
+
+  // Market cap: prefer DexScreener native marketCap/fdv (already decimal-adjusted).
+  // Recompute from price*supply only when Dex has nothing.
+  const marketCap = nativeMcap ?? resolved.marketCap ?? (price != null && supply != null ? price * supply : null);
+  const fdv = nativeFdv ?? resolved.fdv ?? marketCap;
+
+  // Liquidity: DexScreener native aggregate is source of truth.
+  const liquidity = nativeLiquidityUsd || resolved.liquidityUsd || rug?.totalMarketLiquidity || 0;
+  const volume24h = nativeVolume24h || resolved.volume24h || 0;
 
   // Compose risk
   let score = rug?.score ?? 0;
@@ -232,7 +264,7 @@ async function tokenIntel(input: string) {
   const risk = score >= 60 ? "HIGH" : score >= 35 ? "MEDIUM" : score > 0 ? "LOW" : "MINIMAL";
 
   const summary = await gemini(
-    `Write a 3-4 sentence professional security & overview audit. Token: ${resolved.name} (${resolved.symbol}). Risk score: ${risk} (${score}/100). Mint authority ${mintAuthority ? "ACTIVE — supply can be inflated" : "revoked"}. Freeze authority ${freezeAuthority ? "ACTIVE — wallets can be frozen" : "revoked"}. Liquidity: $${(rug?.totalMarketLiquidity ?? resolved.liquidityUsd ?? 0).toLocaleString()}. LP providers: ${rug?.totalLPProviders ?? "n/a"}. Market cap: $${marketCap?.toLocaleString() ?? "n/a"}. Top risks: ${(rug?.risks ?? []).map((r: any) => r.name).join(", ") || "none flagged"}.`,
+    `Write a 3-4 sentence professional security & overview audit. Token: ${resolved.name} (${resolved.symbol}). Risk score: ${risk} (${score}/100). Mint authority ${mintAuthority ? "ACTIVE — supply can be inflated" : "revoked"}. Freeze authority ${freezeAuthority ? "ACTIVE — wallets can be frozen" : "revoked"}. Liquidity: $${liquidity.toLocaleString()}. LP providers: ${rug?.totalLPProviders ?? "n/a"}. Market cap: $${marketCap?.toLocaleString() ?? "n/a"}. Top risks: ${(rug?.risks ?? []).map((r: any) => r.name).join(", ") || "none flagged"}.`,
     "You are GHOST AI's on-chain security analyst. Be direct, concrete, no disclaimers, no hype."
   ).catch((e) => { logErr("intel-summary", e); return ""; });
 
@@ -242,13 +274,14 @@ async function tokenIntel(input: string) {
     name: resolved.name,
     symbol: resolved.symbol,
     image: resolved.image,
-    poolAddress: resolved.poolAddress,
-    pairUrl: resolved.pairUrl,
+    poolAddress: topNative?.pairAddress ?? resolved.poolAddress,
+    pairUrl: topNative?.url ?? resolved.pairUrl,
     price,
-    change24h: resolved.change24h,
+    change24h: topNative?.priceChange?.h24 ?? resolved.change24h,
     marketCap,
-    liquidity: rug?.totalMarketLiquidity ?? resolved.liquidityUsd,
-    volume24h: resolved.volume24h,
+    fdv,
+    liquidity,
+    volume24h,
     supply,
     decimals,
     mintAuthority,
