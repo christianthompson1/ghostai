@@ -92,7 +92,9 @@ export function useChat() {
         content: m.parts.map((p: any) => p.type === "text" ? p.text : `[${p.type}]`).join(" "),
       }));
       const { data, error } = await supabase.functions.invoke("solana-chat", {
-        body: { message: text, history },
+        body: isTxSig
+          ? { command: "tx", args: { signature: trimmed } }
+          : { message: text, history },
       });
       if (error) throw error;
       const parts = data?.parts ?? [{ type: "error", message: "No response" }];
