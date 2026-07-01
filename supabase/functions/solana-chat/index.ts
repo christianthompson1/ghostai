@@ -113,6 +113,7 @@ type Resolved = {
   priceUsd: number | null;
   change24h: number | null;
   marketCap: number | null;
+  fdv: number | null;
   liquidityUsd: number | null;
   volume24h: number | null;
   pairUrl: string | null;
