@@ -135,6 +135,9 @@ async function dexResolve(query: string): Promise<Resolved | null> {
     pairs.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0));
     const top = pairs[0];
     const base = top.baseToken;
+    // Aggregate total USD liquidity across all Solana pairs for this token.
+    const totalLiquidityUsd = pairs.reduce((s, p) => s + (p.liquidity?.usd ?? 0), 0);
+    const totalVolume24h = pairs.reduce((s, p) => s + (p.volume?.h24 ?? 0), 0);
     return {
       address: base.address,
       symbol: (base.symbol ?? "").toUpperCase(),
@@ -144,8 +147,9 @@ async function dexResolve(query: string): Promise<Resolved | null> {
       priceUsd: top.priceUsd ? Number(top.priceUsd) : null,
       change24h: top.priceChange?.h24 ?? null,
       marketCap: top.marketCap ?? top.fdv ?? null,
-      liquidityUsd: top.liquidity?.usd ?? null,
-      volume24h: top.volume?.h24 ?? null,
+      fdv: top.fdv ?? null,
+      liquidityUsd: totalLiquidityUsd || (top.liquidity?.usd ?? null),
+      volume24h: totalVolume24h || (top.volume?.h24 ?? null),
       pairUrl: top.url ?? null,
     } as Resolved;
   });
