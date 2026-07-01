@@ -66,6 +66,16 @@ export function useChat() {
 
   const send = useCallback(async (text: string) => {
     if (!text.trim()) return;
+    const trimmed = text.trim();
+
+    // ⛩️ Front-gate interceptor: if input is a Solana transaction signature
+    // (87-88 base58 chars), bypass the Gemini reasoning model and route
+    // directly to the Helius transaction decoder.
+    if (/^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(trimmed)) {
+      await sendCommandRef.current?.("tx", { signature: trimmed }, trimmed);
+      return;
+    }
+
     setPending(true);
     const ctx = await ensureConv(text);
     if (!ctx) { setPending(false); return; }
@@ -76,6 +86,7 @@ export function useChat() {
     await supabase.from("messages").insert({
       conversation_id: convId, user_id: uid, role: "user", parts: userMsg.parts as any,
     });
+
 
     try {
       const history = messages.slice(-6).map((m) => ({
