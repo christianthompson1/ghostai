@@ -26,11 +26,11 @@ export function ChatFeed({ messages, pending }: { messages: ChatMessage[]; pendi
         {messages.map((m) => (
           <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={m.role === "user"
-              ? "max-w-[85%] glass-pill px-4 py-2.5 text-sm"
-              : "max-w-[95%] w-full flex flex-col gap-3"
+              ? "max-w-[85%] min-w-0 glass-pill px-4 py-2.5 text-sm break-all whitespace-pre-wrap overflow-hidden"
+              : "max-w-[95%] min-w-0 w-full flex flex-col gap-3 overflow-hidden"
             }>
               {m.role === "user" ? (
-                <span>{m.parts[0]?.text ?? ""}</span>
+                <span className="block break-all whitespace-pre-wrap overflow-hidden max-w-full [word-break:break-word]">{m.parts[0]?.text ?? ""}</span>
               ) : (
                 m.parts.map((p, i) => <MessagePart key={i} part={p} messageId={m.id} partIndex={i} />)
               )}
