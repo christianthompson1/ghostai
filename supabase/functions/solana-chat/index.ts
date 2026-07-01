@@ -598,6 +598,12 @@ Deno.serve(async (req) => {
           if (!parts.length) parts.push({ type: "error", message: "Token data unavailable" });
           return Response.json({ parts }, { headers: corsHeaders });
         }
+        if (command === "tx") {
+          const sig = String(args.signature ?? "").trim();
+          if (!/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(sig)) throw new ClientError("Invalid transaction signature");
+          const part = await txDecode(sig);
+          return Response.json({ parts: [part] }, { headers: corsHeaders });
+        }
         throw new ClientError("Unknown command");
       } catch (e) {
         logErr(`command:${command}`, e);
