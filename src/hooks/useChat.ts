@@ -71,10 +71,8 @@ export function useChat() {
     // ⛩️ Front-gate interceptor: if input is a Solana transaction signature
     // (87-88 base58 chars), bypass the Gemini reasoning model and route
     // directly to the Helius transaction decoder.
-    if (/^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(trimmed)) {
-      await sendCommandRef.current?.("tx", { signature: trimmed }, trimmed);
-      return;
-    }
+    const isTxSig = /^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(trimmed);
+
 
     setPending(true);
     const ctx = await ensureConv(text);
