@@ -1,60 +1,15 @@
-import { useEffect, useRef, useState, useContext } from "react";
-import { createChart, AreaSeries, type IChartApi, type ISeriesApi } from "lightweight-charts";
+import { useContext, useState } from "react";
 import { ChatActionsContext } from "@/components/chat/ChatActionsContext";
 
 const TIMEFRAMES = ["1m", "5m", "1h", "1D", "7D", "1M", "6M", "1Y"] as const;
 type TF = typeof TIMEFRAMES[number];
 
 export function PriceChartCard({ data, messageId, partIndex }: { data: any; messageId?: string; partIndex?: number }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
   const actions = useContext(ChatActionsContext);
   const [loading, setLoading] = useState(false);
-  const [fadeKey, setFadeKey] = useState(0);
-
   const currentTf = (TIMEFRAMES.includes(data.timeframe as TF) ? data.timeframe : "1D") as TF;
-
-  const hasPoints = Array.isArray(data.points) && data.points.length > 1;
-  const [canvasFailed, setCanvasFailed] = useState(false);
-
-  useEffect(() => {
-    if (!ref.current || !hasPoints) return;
-    let cancelled = false;
-    try {
-      const isDark = document.documentElement.classList.contains("dark");
-      const chart = createChart(ref.current, {
-        autoSize: true,
-        layout: { background: { color: "transparent" }, textColor: isDark ? "#cbd5e1" : "#475569", fontSize: 11 },
-        grid: {
-          vertLines: { color: isDark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.05)" },
-          horzLines: { color: isDark ? "rgba(255,255,255,0.04)" : "rgba(15,23,42,0.05)" },
-        },
-        rightPriceScale: { borderVisible: false },
-        timeScale: {
-          borderVisible: false,
-          timeVisible: ["1m", "5m", "1h", "1D", "7D"].includes(currentTf),
-        },
-      });
-      const series = chart.addSeries(AreaSeries, {
-        lineColor: "#38bdf8",
-        topColor: "rgba(56,189,248,0.4)",
-        bottomColor: "rgba(56,189,248,0)",
-        lineWidth: 2,
-      }) as ISeriesApi<"Area">;
-      series.setData(data.points ?? []);
-      chart.timeScale().fitContent();
-      chartRef.current = chart;
-      setFadeKey((k) => k + 1);
-      return () => { if (!cancelled) { chart.remove(); chartRef.current = null; } };
-    } catch (e) {
-      console.error("[PriceChart] render failed, falling back to iframe", e);
-      setCanvasFailed(true);
-    }
-    return () => { cancelled = true; };
-  }, [data.points, currentTf, hasPoints]);
-
-
   const positive = (data.change ?? 0) >= 0;
+  const embedTarget = data.poolAddress ?? data.address;
 
   async function pick(tf: TF) {
     if (tf === currentTf || !actions?.updateChartTimeframe || !messageId || partIndex === undefined) return;
@@ -118,19 +73,17 @@ export function PriceChartCard({ data, messageId, partIndex }: { data: any; mess
         ))}
       </div>
 
-      <div className="relative h-48 w-full rounded-lg overflow-hidden">
+      <div className="relative h-80 w-full rounded-lg overflow-hidden">
         {loading ? (
           <div className="absolute inset-0 z-10 bg-white/30 dark:bg-black/30 backdrop-blur-sm grid place-items-center animate-fade-in">
             <div className="spinner" />
           </div>
         ) : null}
-        {hasPoints && !canvasFailed ? (
-          <div key={fadeKey} ref={ref} className="h-full w-full animate-fade-in" />
-        ) : data.poolAddress || data.address ? (
+        {embedTarget ? (
           <iframe
-            key={`dex-${data.address}-${currentTf}`}
+            key={`dex-${embedTarget}`}
             title="DexScreener chart"
-            src={`https://dexscreener.com/solana/${data.poolAddress ?? data.address}?embed=1&theme=dark&trades=0&info=0&chartLeftToolbar=0`}
+            src={`https://dexscreener.com/solana/${embedTarget}?embed=1&theme=dark`}
             className="h-full w-full border-0 animate-fade-in"
             loading="lazy"
           />
@@ -140,7 +93,6 @@ export function PriceChartCard({ data, messageId, partIndex }: { data: any; mess
           </div>
         )}
       </div>
-
     </div>
   );
 }
