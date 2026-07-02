@@ -1,6 +1,31 @@
+import { useEffect, useState } from "react";
 import { Shield, AlertTriangle, CheckCircle2, Lock, Snowflake, Flame, Droplet, TrendingUp, Coins, Copy } from "lucide-react";
+import { fetchTokenMetrics } from "@/lib/ghost-backend";
 
-export function TokenIntelCard({ data }: { data: any }) {
+export function TokenIntelCard({ data: incoming }: { data: any }) {
+  const [data, setData] = useState<any>(incoming);
+
+  useEffect(() => { setData(incoming); }, [incoming]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!incoming?.address) return;
+    (async () => {
+      const m = await fetchTokenMetrics(incoming.address);
+      if (cancelled || !m) return;
+      setData((prev: any) => ({
+        ...prev,
+        supply: m.totalSupply ?? prev.supply,
+        liquidity: m.liquidityUsd ?? prev.liquidity,
+        marketCap: m.fdv ?? prev.marketCap,
+        price: m.priceUsd ?? prev.price,
+        symbol: prev.symbol ?? m.symbol,
+        name: prev.name ?? m.name,
+      }));
+    })();
+    return () => { cancelled = true; };
+  }, [incoming?.address]);
+
   const riskColor =
     data.risk === "HIGH" ? "pill-danger" :
     data.risk === "MEDIUM" ? "pill-warn" :
@@ -14,6 +39,7 @@ export function TokenIntelCard({ data }: { data: any }) {
     navigator.clipboard.writeText(data.address);
     window.dispatchEvent(new CustomEvent("ghost:fill-input", { detail: data.address }));
   }
+
 
   return (
     <div className="glass p-5 flex flex-col gap-4 overflow-hidden relative backdrop-blur-md">
