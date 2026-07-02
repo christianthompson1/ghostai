@@ -89,18 +89,44 @@ export function useChat() {
 
 
     try {
-      const history = messages.slice(-6).map((m) => ({
-        role: m.role,
-        content: m.parts.map((p: any) => p.type === "text" ? p.text : `[${p.type}]`).join(" "),
-      }));
-      const { data, error } = await supabase.functions.invoke("solana-chat", {
-        body: isTxSig
-          ? { command: "tx", args: { signature: trimmed } }
-          : { message: text, history },
-      });
-      if (error) throw error;
-      const parts = data?.parts ?? [{ type: "error", message: "No response" }];
+      let parts: any[];
+      if (isTxSig) {
+        // 🛰️ Route straight to the Ghost AI external backend for tx decoding.
+        try {
+          const decoded = await decodeTransaction(trimmed);
+          const tx = decoded?.transaction ?? {};
+          parts = [
+            {
+              type: "tx_decode",
+              signature: decoded?.signature ?? trimmed,
+              status: tx.transactionError ? "FAILED" : "SUCCESS",
+              txType: tx.type ?? "TRANSACTION",
+              source: tx.source ?? "helius",
+              fee: tx.fee ?? 0,
+              slot: tx.slot,
+              timestamp: tx.timestamp,
+              programs: Array.isArray(tx.instructions)
+                ? Array.from(new Set(tx.instructions.map((i: any) => i.programId).filter(Boolean)))
+                : [],
+              explanation: tx.description ?? "Decoded via Ghost AI backend.",
+            },
+          ];
+        } catch (e: any) {
+          parts = [{ type: "error", message: e?.message ?? "Transaction decode failed" }];
+        }
+      } else {
+        const history = messages.slice(-6).map((m) => ({
+          role: m.role,
+          content: m.parts.map((p: any) => p.type === "text" ? p.text : `[${p.type}]`).join(" "),
+        }));
+        const { data, error } = await supabase.functions.invoke("solana-chat", {
+          body: { message: text, history },
+        });
+        if (error) throw error;
+        parts = data?.parts ?? [{ type: "error", message: "No response" }];
+      }
       const aiMsg: ChatMessage = { id: crypto.randomUUID(), role: "assistant", parts };
+
       setMessages((m) => [...m, aiMsg]);
       await supabase.from("messages").insert({
         conversation_id: convId, user_id: uid, role: "assistant", parts: parts as any,
