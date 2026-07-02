@@ -1,5 +1,5 @@
-import { ArrowUp } from "lucide-react";
-import { useRef, useEffect } from "react";
+import { ArrowUp, Mic, MicOff } from "lucide-react";
+import { useRef, useEffect, useState, useCallback } from "react";
 
 export function Composer({
   value, onChange, onSend, disabled,
@@ -10,6 +10,10 @@ export function Composer({
   disabled?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const baseRef = useRef<string>("");
+  const [listening, setListening] = useState(false);
+  const [supported, setSupported] = useState(true);
 
   useEffect(() => { ref.current?.focus(); }, []);
 
@@ -33,10 +37,56 @@ export function Composer({
     return () => window.removeEventListener("ghost:fill-input", onFill);
   }, [onChange]);
 
+  useEffect(() => {
+    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { setSupported(false); return; }
+  }, []);
+
+  const stopListening = useCallback(() => {
+    try { recognitionRef.current?.stop(); } catch {}
+    setListening(false);
+  }, []);
+
+  const startListening = useCallback(() => {
+    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { setSupported(false); return; }
+    try {
+      const rec = new SR();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = navigator.language || "en-US";
+      baseRef.current = value ? value.replace(/\s+$/, "") + " " : "";
+      rec.onresult = (e: any) => {
+        let interim = "";
+        let finalTxt = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const r = e.results[i];
+          if (r.isFinal) finalTxt += r[0].transcript;
+          else interim += r[0].transcript;
+        }
+        if (finalTxt) baseRef.current += finalTxt + " ";
+        onChange((baseRef.current + interim).replace(/\s+/g, " ").trimStart());
+      };
+      rec.onerror = () => setListening(false);
+      rec.onend = () => setListening(false);
+      recognitionRef.current = rec;
+      rec.start();
+      setListening(true);
+      requestAnimationFrame(() => ref.current?.focus());
+    } catch {
+      setListening(false);
+    }
+  }, [onChange, value]);
+
+  useEffect(() => () => { try { recognitionRef.current?.abort(); } catch {} }, []);
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && value.trim()) onSend();
+      if (!disabled && value.trim()) {
+        if (listening) stopListening();
+        onSend();
+      }
     }
   }
 
@@ -49,12 +99,22 @@ export function Composer({
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ask GHOST AI — paste a mint, $TICKER, tx hash, or query…"
+            placeholder={listening ? "Listening…" : "Ask GHOST AI — paste a mint, $TICKER, tx hash, or query…"}
             rows={1}
             className="flex-1 resize-none bg-transparent outline-none text-sm py-2.5 placeholder:text-muted-foreground max-h-40"
           />
           <button
-            onClick={onSend}
+            type="button"
+            onClick={listening ? stopListening : startListening}
+            disabled={!supported}
+            title={supported ? (listening ? "Stop listening" : "Voice input") : "Voice input not supported in this browser"}
+            aria-label={listening ? "Stop voice input" : "Start voice input"}
+            className={`btn-ghost !p-2.5 !rounded-xl shrink-0 active:scale-95 relative ${listening ? "mic-listening text-cyan-400" : ""}`}
+          >
+            {listening ? <MicOff className="h-4 w-4 relative z-10" /> : <Mic className="h-4 w-4" />}
+          </button>
+          <button
+            onClick={() => { if (listening) stopListening(); onSend(); }}
             disabled={disabled || !value.trim()}
             className="btn-primary !p-2.5 !rounded-xl shrink-0 active:scale-95"
             aria-label="Send"
