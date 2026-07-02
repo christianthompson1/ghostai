@@ -77,7 +77,7 @@ router.post("/debug-transaction", async (req: Request, res: Response) => {
     const apiKey = getHeliusApiKey(); // throws if missing/malformed
 
     const heliusRes = await fetch(
-      `https://api.helius.xyz/v0/transactions/${signature}?api-key=${apiKey}`,
+      `https://api.helius.xyz/v0/transactions/${encodeURIComponent(signature)}?api-key=${encodeURIComponent(apiKey)}`,
       { headers: { Accept: "application/json" } }
     );
 
@@ -119,7 +119,7 @@ router.get("/token-metrics", async (req: Request, res: Response) => {
     }
 
     const dexRes = await fetch(
-      `https://api.dexscreener.com/latest/dex/tokens/${mint.trim()}`,
+      `https://api.dexscreener.com/latest/dex/tokens/${encodeURIComponent(mint.trim())}`,
       { headers: { Accept: "application/json" } }
     );
 
