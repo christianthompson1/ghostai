@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { ChatMessage } from "@/components/chat/ChatFeed";
+import { decodeTransaction } from "@/lib/ghost-backend";
+
 
 type Conv = { id: string; title: string; updated_at: string };
 
