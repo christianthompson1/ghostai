@@ -89,7 +89,9 @@ export function useChat() {
     // ⛩️ Front-gate interceptor: if input is a Solana transaction signature
     // (87-88 base58 chars), bypass the Gemini reasoning model and route
     // directly to the Helius transaction decoder.
-    const isTxSig = /^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(trimmed);
+    // Widened per spec: any 51-88 char base58 blob is treated as a tx signature
+    // and routed straight to the Replit decoder (skipping Gemini).
+    const isTxSig = /^[1-9A-HJ-NP-Za-km-z]{51,88}$/.test(trimmed);
 
 
     setPending(true);
