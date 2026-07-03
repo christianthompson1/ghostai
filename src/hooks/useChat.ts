@@ -11,7 +11,9 @@ function extractTicker(text: string): string | null {
   if (/^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(t)) return null;
   let m = t.match(/^\$([A-Za-z0-9]{2,10})$/);
   if (m) return m[1];
-  m = t.match(/^(?:analyze|audit|chart|show(?:\s+me)?|scan|check)\s+\$?([A-Za-z0-9]{2,10})$/i);
+  m = t.match(/^(?:analyze|audit|chart|show(?:\s+me)?(?:\s+the)?|scan|check)\s+(?:chart\s+(?:for|of)\s+)?\$?([A-Za-z0-9]{2,10})(?:\s+chart)?$/i);
+  if (m) return m[1];
+  m = t.match(/\$([A-Za-z0-9]{2,10})\b/);
   if (m) return m[1];
   m = t.match(/^([A-Z]{2,10})$/);
   if (m) return m[1];
@@ -89,7 +91,9 @@ export function useChat() {
     // ⛩️ Front-gate interceptor: if input is a Solana transaction signature
     // (87-88 base58 chars), bypass the Gemini reasoning model and route
     // directly to the Helius transaction decoder.
-    const isTxSig = /^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(trimmed);
+    // Widened per spec: any 51-88 char base58 blob is treated as a tx signature
+    // and routed straight to the Replit decoder (skipping Gemini).
+    const isTxSig = /^[1-9A-HJ-NP-Za-km-z]{51,88}$/.test(trimmed);
 
 
     setPending(true);
