@@ -11,7 +11,9 @@ function extractTicker(text: string): string | null {
   if (/^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(t)) return null;
   let m = t.match(/^\$([A-Za-z0-9]{2,10})$/);
   if (m) return m[1];
-  m = t.match(/^(?:analyze|audit|chart|show(?:\s+me)?|scan|check)\s+\$?([A-Za-z0-9]{2,10})$/i);
+  m = t.match(/^(?:analyze|audit|chart|show(?:\s+me)?(?:\s+the)?|scan|check)\s+(?:chart\s+(?:for|of)\s+)?\$?([A-Za-z0-9]{2,10})(?:\s+chart)?$/i);
+  if (m) return m[1];
+  m = t.match(/\$([A-Za-z0-9]{2,10})\b/);
   if (m) return m[1];
   m = t.match(/^([A-Z]{2,10})$/);
   if (m) return m[1];
