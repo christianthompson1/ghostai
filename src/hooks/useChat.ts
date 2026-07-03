@@ -1,7 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { ChatMessage } from "@/components/chat/ChatFeed";
-import { decodeTransaction } from "@/lib/ghost-backend";
+import { decodeTransaction, fetchTokenMetrics, resolveTicker } from "@/lib/ghost-backend";
+
+function extractTicker(text: string): string | null {
+  const t = text.trim();
+  if (!t) return null;
+  // Skip anything that looks like a mint (32-44 base58) or tx sig (87-88).
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(t)) return null;
+  if (/^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(t)) return null;
+  let m = t.match(/^\$([A-Za-z0-9]{2,10})$/);
+  if (m) return m[1];
+  m = t.match(/^(?:analyze|audit|chart|show(?:\s+me)?|scan|check)\s+\$?([A-Za-z0-9]{2,10})$/i);
+  if (m) return m[1];
+  m = t.match(/^([A-Z]{2,10})$/);
+  if (m) return m[1];
+  return null;
+}
+
 
 
 type Conv = { id: string; title: string; updated_at: string };
@@ -90,6 +106,7 @@ export function useChat() {
 
     try {
       let parts: any[];
+      const ticker = isTxSig ? null : extractTicker(trimmed);
       if (isTxSig) {
         // 🛰️ Route straight to the Ghost AI external backend for tx decoding.
         try {
@@ -114,6 +131,47 @@ export function useChat() {
         } catch (e: any) {
           parts = [{ type: "error", message: e?.message ?? "Transaction decode failed" }];
         }
+      } else if (ticker) {
+        // 🎯 Ticker fast-path: DexScreener search → most-liquid pair → backend audit.
+        const resolved = await resolveTicker(ticker);
+        if (!resolved) {
+          parts = [{
+            type: "error",
+            message: `Token ticker "${ticker.toUpperCase()}" not found. Please provide the contract address to initialize the glass analytics interface.`,
+          }];
+        } else {
+          const metrics = await fetchTokenMetrics(resolved.address);
+          parts = [
+            {
+              type: "token_intel",
+              address: resolved.address,
+              symbol: resolved.symbol,
+              name: resolved.name,
+              image: resolved.image,
+              price: metrics?.priceUsd ?? resolved.priceUsd,
+              change24h: resolved.change24h,
+              supply: metrics?.totalSupply,
+              marketCap: metrics?.fdv ?? resolved.fdv,
+              liquidity: metrics?.liquidityUsd ?? resolved.liquidityUsd,
+              volume24h: resolved.volume24h,
+              risk: "LOW",
+              riskScore: 20,
+              risks: [],
+              summary: `Auto-resolved ${resolved.symbol ?? ticker.toUpperCase()} from the most-liquid Solana pair on ${resolved.dex ?? "DexScreener"}.`,
+            },
+            {
+              type: "price_chart",
+              address: resolved.address,
+              symbol: resolved.symbol,
+              name: resolved.name,
+              image: resolved.image,
+              current: resolved.priceUsd,
+              change: resolved.change24h,
+              poolAddress: resolved.pairAddress,
+              timeframe: "1D",
+            },
+          ];
+        }
       } else {
         const history = messages.slice(-6).map((m) => ({
           role: m.role,
@@ -125,6 +183,7 @@ export function useChat() {
         if (error) throw error;
         parts = data?.parts ?? [{ type: "error", message: "No response" }];
       }
+
       const aiMsg: ChatMessage = { id: crypto.randomUUID(), role: "assistant", parts };
 
       setMessages((m) => [...m, aiMsg]);
