@@ -1,7 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { ChatMessage } from "@/components/chat/ChatFeed";
-import { decodeTransaction } from "@/lib/ghost-backend";
+import { decodeTransaction, fetchTokenMetrics, resolveTicker } from "@/lib/ghost-backend";
+
+function extractTicker(text: string): string | null {
+  const t = text.trim();
+  if (!t) return null;
+  // Skip anything that looks like a mint (32-44 base58) or tx sig (87-88).
+  if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(t)) return null;
+  if (/^[1-9A-HJ-NP-Za-km-z]{87,88}$/.test(t)) return null;
+  let m = t.match(/^\$([A-Za-z0-9]{2,10})$/);
+  if (m) return m[1];
+  m = t.match(/^(?:analyze|audit|chart|show(?:\s+me)?|scan|check)\s+\$?([A-Za-z0-9]{2,10})$/i);
+  if (m) return m[1];
+  m = t.match(/^([A-Z]{2,10})$/);
+  if (m) return m[1];
+  return null;
+}
+
 
 
 type Conv = { id: string; title: string; updated_at: string };
