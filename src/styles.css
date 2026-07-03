@@ -314,9 +314,27 @@
   .prose-chat h1, .prose-chat h2, .prose-chat h3 { font-weight: 700; margin: .8rem 0 .4rem 0; }
   .prose-chat strong { font-weight: 600; }
 
+
+  .shimmer-glass {
+    background: linear-gradient(
+      110deg,
+      transparent 20%,
+      color-mix(in oklab, var(--sky) 22%, transparent) 45%,
+      color-mix(in oklab, var(--sky) 35%, transparent) 50%,
+      color-mix(in oklab, var(--sky) 22%, transparent) 55%,
+      transparent 80%
+    );
+    background-size: 220% 100%;
+    animation: ghost-shimmer 1.6s linear infinite;
+  }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes ghost-shimmer {
+  0%   { background-position: 220% 0; }
+  100% { background-position: -20% 0; }
+}
+
 
 .mic-listening {
   box-shadow: 0 0 0 0 rgba(34,211,238,0.55);
