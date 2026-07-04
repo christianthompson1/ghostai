@@ -140,4 +140,55 @@ export async function fetchOhlcv(poolAddress: string, timeframe: string): Promis
   } catch {
     return [];
   }
+
+// ── Demo (paper) trading ──────────────────────────────────────────────────────
+export type DemoAccount = {
+  userId: string;
+  balanceUsd: number;
+  portfolio: Record<string, number>;
+  trades: Array<{
+    id: string; action: "buy" | "sell"; mint: string; symbol: string;
+    amount: number; priceUsd: number; totalUsd: number; timestamp: string;
+  }>;
+  createdAt?: string;
+};
+
+export async function initDemoAccount(userId?: string): Promise<DemoAccount> {
+  try {
+    const res = await fetch(`${GHOST_BACKEND}/api/demo/initialize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(userId ? { userId } : {}),
+    });
+    if (!res.ok) throw new Error(`Backend ${res.status}`);
+    return await res.json();
+  } catch {
+    // Local fallback so the demo UI always renders.
+    return {
+      userId: userId ?? Math.random().toString(36).slice(2, 10),
+      balanceUsd: 1000,
+      portfolio: {},
+      trades: [],
+      createdAt: new Date().toISOString(),
+    };
+  }
 }
+
+export async function submitDemoTrade(input: {
+  userId: string; action: "buy" | "sell"; mint: string;
+  symbol: string; amount: number; priceUsd: number;
+}): Promise<{ ok: boolean; error?: string; account?: any; trade?: any }> {
+  try {
+    const res = await fetch(`${GHOST_BACKEND}/api/demo/trade`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: json?.error ?? `Backend ${res.status}` };
+    return { ok: true, ...json };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Network unreachable" };
+  }
+}
+
