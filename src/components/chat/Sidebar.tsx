@@ -48,6 +48,16 @@ export function Sidebar({
         <Plus className="h-4 w-4" /> New chat
       </button>
 
+      <Link
+        to="/demo"
+        onClick={onClose}
+        className="side-item"
+        activeProps={{ className: "side-item active" }}
+      >
+        <LineChart className="h-3.5 w-3.5 shrink-0 sky-text" />
+        <span className="truncate">Demo Paper Trading</span>
+      </Link>
+
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground px-2 mt-1">Quick prompts</div>
       <div className="flex flex-col gap-1">
         {presets.map((p) => (
