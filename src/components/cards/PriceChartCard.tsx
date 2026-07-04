@@ -97,7 +97,7 @@ export function PriceChartCard({ data }: { data: any; messageId?: string; partIn
       <div className="relative h-72 w-full rounded-xl overflow-hidden bg-white/20 dark:bg-white/5 border border-white/20 backdrop-blur-md">
         {loading ? (
           <div className="absolute inset-0 z-10 grid place-items-center text-[11px] text-muted-foreground shimmer-glass">
-            Analyzing ledger streams…
+            Streaming pool metrics…
           </div>
         ) : null}
         {!loading && !points.length ? (
