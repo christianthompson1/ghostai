@@ -1,4 +1,5 @@
-import { Plus, MessageSquare, Sun, Moon, LogOut, Trash2, X } from "lucide-react";
+import { Plus, MessageSquare, Sun, Moon, LogOut, Trash2, X, LineChart } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import logo from "@/assets/ghost-ai-logo.asset.json";
 import { useTheme } from "@/hooks/useTheme";
 
