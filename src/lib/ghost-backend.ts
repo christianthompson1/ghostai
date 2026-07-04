@@ -140,6 +140,7 @@ export async function fetchOhlcv(poolAddress: string, timeframe: string): Promis
   } catch {
     return [];
   }
+}
 
 // ── Demo (paper) trading ──────────────────────────────────────────────────────
 export type DemoAccount = {
