@@ -175,21 +175,76 @@ export async function initDemoAccount(userId?: string): Promise<DemoAccount> {
   }
 }
 
-export async function submitDemoTrade(input: {
-  userId: string; action: "buy" | "sell"; mint: string;
-  symbol: string; amount: number; priceUsd: number;
-}): Promise<{ ok: boolean; error?: string; account?: any; trade?: any }> {
+/** Immutably apply a trade to an account (used as an offline fallback). */
+export function applyTradeLocally(
+  account: DemoAccount,
+  input: { action: "buy" | "sell"; mint: string; symbol: string; amount: number; priceUsd: number },
+): { ok: boolean; error?: string; account: DemoAccount } {
+  const totalUsd = +(input.amount * input.priceUsd).toFixed(6);
+  const held = account.portfolio[input.mint] ?? 0;
+  const next: DemoAccount = {
+    ...account,
+    balanceUsd: account.balanceUsd,
+    portfolio: { ...account.portfolio },
+    trades: [...account.trades],
+  };
+  if (input.action === "buy") {
+    if (next.balanceUsd < totalUsd) return { ok: false, error: "Insufficient demo balance", account };
+    next.balanceUsd = +(next.balanceUsd - totalUsd).toFixed(6);
+    next.portfolio[input.mint] = +(held + input.amount).toFixed(9);
+  } else {
+    if (held < input.amount) return { ok: false, error: "Insufficient token holdings to sell", account };
+    next.balanceUsd = +(next.balanceUsd + totalUsd).toFixed(6);
+    const remaining = +(held - input.amount).toFixed(9);
+    if (remaining === 0) delete next.portfolio[input.mint];
+    else next.portfolio[input.mint] = remaining;
+  }
+  next.trades.push({
+    id: Math.random().toString(36).slice(2, 10),
+    action: input.action,
+    mint: input.mint,
+    symbol: input.symbol.toUpperCase(),
+    amount: input.amount,
+    priceUsd: input.priceUsd,
+    totalUsd,
+    timestamp: new Date().toISOString(),
+  });
+  return { ok: true, account: next };
+}
+
+export async function submitDemoTrade(
+  account: DemoAccount,
+  input: { action: "buy" | "sell"; mint: string; symbol: string; amount: number; priceUsd: number },
+): Promise<{ ok: boolean; error?: string; account: DemoAccount; source: "backend" | "local" }> {
+  const payload = { userId: account.userId, ...input };
   try {
     const res = await fetch(`${GHOST_BACKEND}/api/demo/trade`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify(payload),
     });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) return { ok: false, error: json?.error ?? `Backend ${res.status}` };
-    return { ok: true, ...json };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Network unreachable" };
+    const json = await res.json().catch(() => ({} as any));
+    if (res.ok && json?.account) {
+      // Merge server balances/portfolio with local trade log for a full history.
+      const local = applyTradeLocally(account, input);
+      const merged: DemoAccount = {
+        ...account,
+        balanceUsd: Number(json.account.balanceUsd) || local.account.balanceUsd,
+        portfolio: json.account.portfolio ?? local.account.portfolio,
+        trades: local.account.trades,
+      };
+      return { ok: true, account: merged, source: "backend" };
+    }
+    // Non-2xx (unknown user, 422, etc.) → simulate locally so the demo always works.
+    const local = applyTradeLocally(account, input);
+    return local.ok
+      ? { ok: true, account: local.account, source: "local" }
+      : { ok: false, error: local.error, account, source: "local" };
+  } catch {
+    const local = applyTradeLocally(account, input);
+    return local.ok
+      ? { ok: true, account: local.account, source: "local" }
+      : { ok: false, error: local.error, account, source: "local" };
   }
 }
 
