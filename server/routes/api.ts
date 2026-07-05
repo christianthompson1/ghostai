@@ -7,6 +7,7 @@
 
 import { Router, type Request, type Response } from "express";
 import { router as demoRouter } from "./demo.js";
+import { router as pumpfunRouter } from "./pumpfun.js";
 
 export const router = Router();
 
@@ -37,6 +38,7 @@ const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 // ── Sub-routers ───────────────────────────────────────────────────────────────
 
 router.use("/demo", demoRouter);
+router.use("/pumpfun", pumpfunRouter);
 
 // ── Directory ─────────────────────────────────────────────────────────────────
 

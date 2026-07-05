@@ -9,6 +9,7 @@
 
 import express, { type Request, type Response, type NextFunction } from "express";
 import { router as apiRouter } from "./routes/api.js";
+import { startPumpPortalClient } from "./lib/pumpportal-ws.js";
 
 const app = express();
 const PORT = process.env.SERVER_PORT ? Number(process.env.SERVER_PORT) : 3001;
@@ -67,6 +68,10 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`[Ghost AI Server] Running on http://0.0.0.0:${PORT}`);
   console.log(`[Ghost AI Server] Health: http://0.0.0.0:${PORT}/health`);
   console.log(`[Ghost AI Server] API:    http://0.0.0.0:${PORT}/api`);
+
+  // Boot the Pump.fun live data pipeline — connects to PumpPortal WebSocket
+  // and begins tracking bonding-curve token states in memory.
+  startPumpPortalClient();
 });
 
 export default app;
