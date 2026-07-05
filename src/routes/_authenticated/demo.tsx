@@ -5,8 +5,8 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import {
-  initDemoAccount, submitDemoTrade, resolveTicker,
-  type DemoAccount, type ResolvedTicker,
+  initDemoAccount, submitDemoTrade,
+  type DemoAccount,
 } from "@/lib/ghost-backend";
 import {
   fetchLivePrices, fetchTokenSnapshot, fetchPumpTrending,
