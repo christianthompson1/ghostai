@@ -52,6 +52,14 @@ export interface TokenEntry {
   imageUri?:           string;
   firstSeen:           number;  // Date.now() when first added to map
   lastUpdated:         number;  // Date.now() of most recent trade event
+  /** AI Alpha signal — set when bonding-curve progress jumps > 5 % in 60 s. */
+  aiSignal:            string | null;
+}
+
+/** Internal velocity sample — not exported in API responses. */
+interface VelocitySample {
+  ts:           number;
+  marketCapSol: number;
 }
 
 /** Raw event shape from PumpPortal WebSocket. */
@@ -73,6 +81,17 @@ interface PumpEvent {
 
 /** The single shared token-state map — read by /api/pumpfun/trending. */
 export const tokenMap = new Map<string, TokenEntry>();
+
+/**
+ * Internal velocity tracker — rolling 60-second window of marketCapSol samples
+ * per mint. Used to compute AI alpha signals. Never exposed in API responses.
+ */
+const velocityWindow = new Map<string, VelocitySample[]>();
+
+/** How long (ms) to look back when computing progress velocity. */
+const VELOCITY_WINDOW_MS     = 60_000;
+/** Progress-point jump that triggers an AI signal. */
+const VELOCITY_THRESHOLD_PCT = 5;
 
 let ws: WebSocket | null = null;
 let reconnectDelay = RECONNECT_BASE_MS;
@@ -192,25 +211,25 @@ function processEvent(event: PumpEvent): void {
 
   if (isGraduated) {
     if (tokenMap.has(mint)) {
-      tokenMap.delete(mint);
-      wsStats.tokensTracked = tokenMap.size;  // keep stats in sync immediately
+      evictMint(mint);
+      wsStats.tokensTracked = tokenMap.size;
       console.log(`[PumpPortal] Graduated & evicted: ${event.symbol ?? mint}`);
     }
     return;
   }
 
-  const now     = Date.now();
+  const now      = Date.now();
   const existing = tokenMap.get(mint);
+  const aiSignal = computeAiSignal(mint, marketCapSol, now);
 
   if (existing) {
-    // Update mutable fields from the latest trade event
     existing.marketCapSol          = marketCapSol || existing.marketCapSol;
     existing.vTokensInBondingCurve = event.vTokensInBondingCurve ?? existing.vTokensInBondingCurve;
     existing.vSolInBondingCurve    = event.vSolInBondingCurve    ?? existing.vSolInBondingCurve;
     existing.pool                  = pool;
     existing.lastUpdated           = now;
+    existing.aiSignal              = aiSignal;
   } else {
-    // First time we see this token
     const entry: TokenEntry = {
       mint,
       name:                  event.name   ?? "Unknown",
@@ -223,6 +242,7 @@ function processEvent(event: PumpEvent): void {
       imageUri:              event.uri,
       firstSeen:             now,
       lastUpdated:           now,
+      aiSignal,
     };
     tokenMap.set(mint, entry);
     enforceMapSizeCap();
@@ -231,21 +251,74 @@ function processEvent(event: PumpEvent): void {
   wsStats.tokensTracked = tokenMap.size;
 }
 
+/**
+ * Rolling 60-second velocity detector.
+ *
+ * Returns an AI signal string when a token's bonding-curve progress has
+ * increased by more than VELOCITY_THRESHOLD_PCT percentage points within
+ * the last 60 seconds — null otherwise.
+ *
+ * Signal semantics:
+ *   "HIGH VELOCITY SQUEEZE"  — token is > 70 % to graduation and still
+ *                               accelerating; extremely high buy pressure.
+ *   "BULLISH BREAKOUT"       — token is below 70 % but gaining momentum
+ *                               fast enough to signal early entry.
+ */
+function computeAiSignal(mint: string, currentMcSol: number, now: number): string | null {
+  let history = velocityWindow.get(mint);
+  if (!history) {
+    history = [];
+    velocityWindow.set(mint, history);
+  }
+
+  history.push({ ts: now, marketCapSol: currentMcSol });
+
+  // Trim samples older than the velocity window
+  const cutoff = now - VELOCITY_WINDOW_MS;
+  while (history.length > 1 && history[0].ts < cutoff) history.shift();
+
+  // Need at least two samples separated by > 5 s to avoid noise
+  if (history.length < 2) return null;
+  const oldest = history[0];
+  if (now - oldest.ts < 5_000) return null;
+
+  const currentProgress = (currentMcSol / GRADUATION_SOL_THRESHOLD) * 100;
+  const oldestProgress  = (oldest.marketCapSol / GRADUATION_SOL_THRESHOLD) * 100;
+  const delta           = currentProgress - oldestProgress;
+
+  if (delta < VELOCITY_THRESHOLD_PCT) return null;
+
+  return currentProgress >= 70
+    ? "HIGH VELOCITY SQUEEZE"
+    : "BULLISH BREAKOUT";
+}
+
 // ── memory hygiene ────────────────────────────────────────────────────────────
+
+/** Remove a mint from both tokenMap and the internal velocityWindow. */
+function evictMint(mint: string): void {
+  tokenMap.delete(mint);
+  velocityWindow.delete(mint);
+}
 
 /** Evict tokens that haven't traded in 2 hours AND are below 10 % progress. */
 function pruneStaleEntries(): void {
-  const now   = Date.now();
-  let pruned  = 0;
+  const now  = Date.now();
+  let pruned = 0;
 
   for (const [mint, entry] of tokenMap) {
-    const isStale     = now - entry.lastUpdated > STALE_AFTER_MS;
-    const isLowValue  = entry.marketCapSol < LOW_PROGRESS_SOL;
+    const isStale    = now - entry.lastUpdated > STALE_AFTER_MS;
+    const isLowValue = entry.marketCapSol < LOW_PROGRESS_SOL;
 
     if (isStale && isLowValue) {
-      tokenMap.delete(mint);
+      evictMint(mint);
       pruned++;
     }
+  }
+
+  // Also sweep velocityWindow for any orphaned mints no longer in tokenMap
+  for (const mint of velocityWindow.keys()) {
+    if (!tokenMap.has(mint)) velocityWindow.delete(mint);
   }
 
   wsStats.tokensTracked = tokenMap.size;
@@ -256,10 +329,9 @@ function pruneStaleEntries(): void {
 function enforceMapSizeCap(): void {
   if (tokenMap.size <= MAX_MAP_SIZE) return;
 
-  // Sort ascending by marketCapSol and drop the bottom entries
   const sorted = [...tokenMap.entries()].sort(
     ([, a], [, b]) => a.marketCapSol - b.marketCapSol
   );
   const toRemove = sorted.slice(0, tokenMap.size - MAX_MAP_SIZE);
-  for (const [mint] of toRemove) tokenMap.delete(mint);
+  for (const [mint] of toRemove) evictMint(mint);
 }
