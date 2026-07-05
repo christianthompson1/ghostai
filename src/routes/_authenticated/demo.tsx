@@ -1,40 +1,58 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, TrendingUp, TrendingDown, Wallet, Sparkles } from "lucide-react";
-import { initDemoAccount, submitDemoTrade, resolveTicker, type DemoAccount, type ResolvedTicker } from "@/lib/ghost-backend";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, TrendingUp, TrendingDown, Wallet, Sparkles, Flame, Rocket, RefreshCw } from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from "recharts";
+import {
+  initDemoAccount, submitDemoTrade, resolveTicker,
+  type DemoAccount, type ResolvedTicker,
+} from "@/lib/ghost-backend";
+import {
+  fetchLivePrices, fetchTokenSnapshot, fetchPumpTrending,
+  type LiveTokenRow, type PumpTrendingRow,
+} from "@/lib/market-data";
 
 export const Route = createFileRoute("/_authenticated/demo")({
   component: DemoTradingPage,
   head: () => ({
     meta: [
       { title: "Demo Paper Trading — Ghost AI" },
-      { name: "description", content: "Practice Solana trading with a $1,000 mock portfolio powered by the Ghost AI engine." },
+      { name: "description", content: "Trade a live directory of Solana tokens with a $1,000 mock portfolio." },
     ],
   }),
 });
 
 const STORAGE_KEY = "ghost.demo.userId";
 
-type Position = {
-  mint: string;
-  symbol: string;
-  amount: number;
-  avgCost: number;    // average USD entry per token
-  livePrice: number;  // current market price
-};
+type Position = { mint: string; symbol: string; amount: number; avgCost: number; livePrice: number };
 
 function DemoTradingPage() {
+  // ── Account state ──────────────────────────────────────────────────────────
   const [account, setAccount] = useState<DemoAccount | null>(null);
   const [loading, setLoading] = useState(true);
-  const [ticker, setTicker] = useState("BONK");
-  const [amount, setAmount] = useState("1000");
-  const [resolved, setResolved] = useState<ResolvedTicker | null>(null);
-  const [quoting, setQuoting] = useState(false);
+
+  // ── Live market data ───────────────────────────────────────────────────────
+  const [market, setMarket] = useState<LiveTokenRow[]>([]);
+  const [pump, setPump] = useState<PumpTrendingRow[]>([]);
+
+  // ── Selection / chart ──────────────────────────────────────────────────────
+  const [selected, setSelected] = useState<LiveTokenRow | null>(null);
+  const [chartSeries, setChartSeries] = useState<Array<{ t: number; price: number }>>([]);
+
+  // ── Trade form ─────────────────────────────────────────────────────────────
+  const [amount, setAmount] = useState("100");
   const [submitting, setSubmitting] = useState<"buy" | "sell" | null>(null);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
-  const [livePrices, setLivePrices] = useState<Record<string, ResolvedTicker>>({});
 
-  // Boot account (idempotent)
+  // Live prices lookup by mint (drives PnL + chart real-time ticks)
+  const livePriceByMint = useMemo(() => {
+    const m = new Map<string, number>();
+    market.forEach((r) => m.set(r.mint, r.priceUsd));
+    return m;
+  }, [market]);
+
+  // ── Boot account (idempotent) ──────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -48,65 +66,79 @@ function DemoTradingPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Quote the ticker the user is about to trade
+  // ── Poll DexScreener top-50 every 4s ───────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    const q = ticker.trim();
-    if (!q) { setResolved(null); return; }
-    setQuoting(true);
-    const t = setTimeout(async () => {
-      const r = await resolveTicker(q);
-      if (!cancelled) { setResolved(r); setQuoting(false); }
-    }, 300);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, [ticker]);
-
-  // Refresh live prices for held positions for unrealized PnL
-  useEffect(() => {
-    if (!account) return;
-    let cancelled = false;
-    async function refresh() {
-      const mints = Object.keys(account!.portfolio);
-      const symbolByMint: Record<string, string> = {};
-      account!.trades.forEach((t) => { symbolByMint[t.mint] = t.symbol; });
-      const entries = await Promise.all(
-        mints.map(async (mint) => {
-          const sym = symbolByMint[mint] ?? mint.slice(0, 4);
-          const r = await resolveTicker(sym);
-          return [mint, r] as const;
-        }),
-      );
-      if (cancelled) return;
-      const next: Record<string, ResolvedTicker> = {};
-      entries.forEach(([m, r]) => { if (r) next[m] = r; });
-      setLivePrices(next);
+    async function tick() {
+      const rows = await fetchLivePrices();
+      if (!cancelled && rows.length) {
+        setMarket(rows);
+        // Auto-select the most-active token on first load
+        setSelected((prev) => prev ?? rows[0]);
+      }
     }
-    refresh();
-    const id = setInterval(refresh, 20000);
+    tick();
+    const id = setInterval(tick, 4000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [account]);
+  }, []);
 
+  // ── Poll Replit pump-fun endpoint every 1s ─────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    async function tick() {
+      const rows = await fetchPumpTrending();
+      if (!cancelled) setPump(rows);
+    }
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  // ── Real-time chart series: every 1s, snapshot the selected token ──────────
+  useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    setChartSeries([]); // reset on token switch
+    async function tick() {
+      const snap = await fetchTokenSnapshot(selected!.mint);
+      if (cancelled || !snap?.priceUsd) return;
+      setChartSeries((prev) => {
+        const next = [...prev, { t: Date.now(), price: snap.priceUsd }];
+        // Keep a rolling window of ~120 points
+        return next.length > 120 ? next.slice(next.length - 120) : next;
+      });
+      // also fold the fresh price into the market row so the directory ticks live
+      setMarket((rows) => rows.map((r) => (r.mint === snap.mint ? { ...r, priceUsd: snap.priceUsd, change24h: snap.change24h } : r)));
+    }
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [selected?.mint]);
+
+  // ── Positions & derived stats ──────────────────────────────────────────────
   const positions: Position[] = useMemo(() => {
     if (!account) return [];
     return Object.entries(account.portfolio).map(([mint, qty]) => {
       const buys = account.trades.filter((t) => t.mint === mint && t.action === "buy");
       const totalCost = buys.reduce((s, b) => s + b.totalUsd, 0);
-      const totalQty = buys.reduce((s, b) => s + b.amount, 0);
-      const avgCost = totalQty > 0 ? totalCost / totalQty : 0;
-      const symbol = account.trades.find((t) => t.mint === mint)?.symbol ?? mint.slice(0, 4);
-      const live = livePrices[mint];
-      return { mint, symbol, amount: qty, avgCost, livePrice: live?.priceUsd ?? avgCost };
+      const totalQty  = buys.reduce((s, b) => s + b.amount, 0);
+      const avgCost   = totalQty > 0 ? totalCost / totalQty : 0;
+      const symbol    = account.trades.find((t) => t.mint === mint)?.symbol ?? mint.slice(0, 4);
+      const livePrice = livePriceByMint.get(mint) ?? avgCost;
+      return { mint, symbol, amount: qty, avgCost, livePrice };
     });
-  }, [account, livePrices]);
+  }, [account, livePriceByMint]);
 
-  const portfolioValue = positions.reduce((s, p) => s + p.amount * p.livePrice, 0);
-  const totalEquity = (account?.balanceUsd ?? 0) + portfolioValue;
+  const portfolioValue  = positions.reduce((s, p) => s + p.amount * p.livePrice, 0);
+  const totalEquity     = (account?.balanceUsd ?? 0) + portfolioValue;
   const totalUnrealized = positions.reduce((s, p) => s + (p.livePrice - p.avgCost) * p.amount, 0);
-  const totalPct = totalEquity > 0 ? ((totalEquity - 1000) / 1000) * 100 : 0;
+  const totalPct        = totalEquity > 0 ? ((totalEquity - 1000) / 1000) * 100 : 0;
 
+  // ── Actions ────────────────────────────────────────────────────────────────
   async function trade(action: "buy" | "sell") {
-    if (!account || !resolved?.address || !resolved.priceUsd) {
-      setToast({ kind: "err", msg: "No live quote for that ticker yet." });
+    if (!account) return;
+    if (!selected?.priceUsd) {
+      setToast({ kind: "err", msg: "Pick a token from the market or pump board first." });
       return;
     }
     const usd = Number(amount);
@@ -115,21 +147,24 @@ function DemoTradingPage() {
       return;
     }
     setSubmitting(action);
-    const tokenAmount = usd / resolved.priceUsd;
-    const res = await submitDemoTrade({
-      userId: account.userId,
+    const tokenAmount = usd / selected.priceUsd;
+    const res = await submitDemoTrade(account, {
       action,
-      mint: resolved.address,
-      symbol: resolved.symbol ?? ticker.toUpperCase(),
+      mint: selected.mint,
+      symbol: selected.symbol,
       amount: tokenAmount,
-      priceUsd: resolved.priceUsd,
+      priceUsd: selected.priceUsd,
     });
     setSubmitting(null);
-    if (!res.ok) { setToast({ kind: "err", msg: res.error ?? "Trade failed" }); return; }
-    // Refresh account state
-    const fresh = await initDemoAccount(account.userId);
-    setAccount(fresh);
-    setToast({ kind: "ok", msg: `${action === "buy" ? "Bought" : "Sold"} ${tokenAmount.toFixed(4)} ${resolved.symbol}` });
+    if (!res.ok) {
+      setToast({ kind: "err", msg: res.error ?? "Trade failed" });
+      return;
+    }
+    setAccount(res.account);
+    setToast({
+      kind: "ok",
+      msg: `${action === "buy" ? "Bought" : "Sold"} ${tokenAmount.toFixed(4)} ${selected.symbol}${res.source === "local" ? " · offline" : ""}`,
+    });
   }
 
   useEffect(() => {
@@ -138,9 +173,19 @@ function DemoTradingPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // Handler for Pump.fun rows — resolve to a market snapshot then select
+  async function pickPump(row: PumpTrendingRow) {
+    const snap = await fetchTokenSnapshot(row.mint);
+    setSelected(snap ?? {
+      mint: row.mint, symbol: row.symbol, name: row.name,
+      priceUsd: row.marketCapUsd > 0 ? row.marketCapUsd / 1_000_000_000 : 0,
+      change24h: 0, liquidityUsd: 0, volume24h: 0, image: row.imageUri ?? undefined,
+    });
+  }
+
   return (
     <div className="min-h-screen w-full p-3 sm:p-6 bg-[var(--background)]">
-      <div className="max-w-6xl mx-auto flex flex-col gap-4">
+      <div className="max-w-7xl mx-auto flex flex-col gap-4">
         <header className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <Link to="/" className="btn-ghost active:scale-95" aria-label="Back to chat">
@@ -150,7 +195,7 @@ function DemoTradingPage() {
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight truncate">
                 Demo <span className="sky-text">Paper Trading</span>
               </h1>
-              <p className="text-xs text-muted-foreground">Simulated Solana trades — no real funds involved.</p>
+              <p className="text-xs text-muted-foreground">Live Solana directory · Pump.fun graduation board · simulated trades.</p>
             </div>
           </div>
           <Link to="/" className="pill pill-sky">
@@ -188,96 +233,102 @@ function DemoTradingPage() {
           </div>
         </section>
 
-        {/* Trade blocks */}
-        <section className="grid md:grid-cols-2 gap-4">
-          <div className="glass p-5 flex flex-col gap-3 backdrop-blur-md">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold">Simulate trade</h2>
-              {quoting ? <span className="text-[10px] shimmer-glass px-2 py-0.5">Streaming pool metrics…</span>
-                       : resolved ? <span className="pill pill-sky">${resolved.priceUsd?.toFixed(6) ?? "—"}</span>
-                       : <span className="text-[10px] text-muted-foreground">No quote</span>}
-            </div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Ticker</label>
-            <input
-              value={ticker}
-              onChange={(e) => setTicker(e.target.value)}
-              placeholder="e.g. BONK, WIF, FART"
-              className="glass-pill px-3 py-2 text-sm bg-white/40 dark:bg-white/5 outline-none"
-            />
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Amount (USD)</label>
+        {/* Market + Chart + Pump board */}
+        <section className="grid lg:grid-cols-[1fr_1.4fr_1fr] gap-4">
+          <MarketDirectory rows={market} selected={selected?.mint ?? null} onPick={setSelected} />
+          <ChartPanel selected={selected} series={chartSeries} />
+          <PumpBoard rows={pump} selected={selected?.mint ?? null} onPick={pickPump} />
+        </section>
+
+        {/* Trade block */}
+        <section className="glass p-5 flex flex-col gap-3 backdrop-blur-md">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="font-semibold">Simulate trade</h2>
+            {selected ? (
+              <span className="pill pill-sky tabular-nums">
+                {selected.symbol} · ${selected.priceUsd.toFixed(selected.priceUsd < 1 ? 8 : 4)}
+              </span>
+            ) : <span className="text-[11px] text-muted-foreground">Select a token above</span>}
+          </div>
+          <div className="grid sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
             <input
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               inputMode="decimal"
-              className="glass-pill px-3 py-2 text-sm bg-white/40 dark:bg-white/5 outline-none tabular-nums"
+              placeholder="USD amount"
+              className="glass-pill px-3 py-2.5 text-sm bg-white/40 dark:bg-white/5 outline-none tabular-nums"
             />
-            {resolved ? (
-              <div className="text-[11px] text-muted-foreground">
-                ≈ <span className="font-mono">{(Number(amount) / (resolved.priceUsd || 1)).toFixed(4)}</span> {resolved.symbol}
-              </div>
-            ) : null}
-            <div className="grid grid-cols-2 gap-2 mt-1">
-              <button
-                onClick={() => trade("buy")}
-                disabled={!!submitting || !resolved?.priceUsd}
-                className="pill pill-ok justify-center py-2.5 font-semibold active:scale-95 disabled:opacity-50"
-              >
-                <TrendingUp className="h-4 w-4" /> {submitting === "buy" ? "Buying…" : "Simulate Buy"}
-              </button>
-              <button
-                onClick={() => trade("sell")}
-                disabled={!!submitting || !resolved?.priceUsd}
-                className="pill pill-danger justify-center py-2.5 font-semibold active:scale-95 disabled:opacity-50"
-              >
-                <TrendingDown className="h-4 w-4" /> {submitting === "sell" ? "Selling…" : "Simulate Sell"}
-              </button>
-            </div>
-            {toast ? (
-              <div className={`text-[11px] mt-1 pill ${toast.kind === "ok" ? "pill-ok" : "pill-danger"}`}>
-                {toast.msg}
-              </div>
-            ) : null}
+            <button
+              onClick={() => trade("buy")}
+              disabled={!!submitting || !selected?.priceUsd}
+              className="pill pill-ok justify-center py-2.5 font-semibold active:scale-95 disabled:opacity-50"
+            >
+              <TrendingUp className="h-4 w-4" /> {submitting === "buy" ? "Buying…" : "Simulate Buy"}
+            </button>
+            <button
+              onClick={() => trade("sell")}
+              disabled={!!submitting || !selected?.priceUsd}
+              className="pill pill-danger justify-center py-2.5 font-semibold active:scale-95 disabled:opacity-50"
+            >
+              <TrendingDown className="h-4 w-4" /> {submitting === "sell" ? "Selling…" : "Simulate Sell"}
+            </button>
           </div>
-
-          {/* Positions table */}
-          <div className="glass p-5 flex flex-col gap-3 backdrop-blur-md">
-            <h2 className="font-semibold">Open positions</h2>
-            <div className="max-h-72 overflow-y-auto rounded-xl border border-white/20">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-white/40 dark:bg-white/5 backdrop-blur-md">
-                  <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-                    <th className="px-3 py-2">Token</th>
-                    <th className="px-3 py-2 text-right">Qty</th>
-                    <th className="px-3 py-2 text-right">Avg</th>
-                    <th className="px-3 py-2 text-right">Live</th>
-                    <th className="px-3 py-2 text-right">PnL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions.length === 0 ? (
-                    <tr><td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">
-                      No open positions yet. Simulate a buy to get started.
-                    </td></tr>
-                  ) : positions.map((p) => {
-                    const pnl = (p.livePrice - p.avgCost) * p.amount;
-                    const pct = p.avgCost > 0 ? ((p.livePrice - p.avgCost) / p.avgCost) * 100 : 0;
-                    const pos = pnl >= 0;
-                    return (
-                      <tr key={p.mint} className="border-t border-white/10">
-                        <td className="px-3 py-2 font-semibold">{p.symbol}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{p.amount.toFixed(4)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">${p.avgCost.toFixed(6)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">${p.livePrice.toFixed(6)}</td>
-                        <td className={`px-3 py-2 text-right tabular-nums font-semibold ${pos ? "text-[oklch(0.55_0.18_150)]" : "text-[color:var(--destructive)]"}`}>
-                          {pos ? "+" : "−"}${Math.abs(pnl).toFixed(2)}<br />
-                          <span className="text-[10px] opacity-80">{pos ? "+" : ""}{pct.toFixed(2)}%</span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          {selected?.priceUsd ? (
+            <div className="text-[11px] text-muted-foreground">
+              ≈ <span className="font-mono">{(Number(amount) / selected.priceUsd).toFixed(4)}</span> {selected.symbol}
             </div>
+          ) : null}
+          {toast ? (
+            <div className={`text-[11px] mt-1 pill w-fit ${toast.kind === "ok" ? "pill-ok" : "pill-danger"}`}>
+              {toast.msg}
+            </div>
+          ) : null}
+        </section>
+
+        {/* Positions table */}
+        <section className="glass p-5 flex flex-col gap-3 backdrop-blur-md">
+          <h2 className="font-semibold">Open positions</h2>
+          <div className="max-h-72 overflow-y-auto rounded-xl border border-white/20">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-white/40 dark:bg-white/5 backdrop-blur-md">
+                <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <th className="px-3 py-2">Token</th>
+                  <th className="px-3 py-2 text-right">Qty</th>
+                  <th className="px-3 py-2 text-right">Avg</th>
+                  <th className="px-3 py-2 text-right">Live</th>
+                  <th className="px-3 py-2 text-right">Value</th>
+                  <th className="px-3 py-2 text-right">PnL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.length === 0 ? (
+                  <tr><td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
+                    No open positions yet. Simulate a buy to get started.
+                  </td></tr>
+                ) : positions.map((p) => {
+                  const pnl = (p.livePrice - p.avgCost) * p.amount;
+                  const pct = p.avgCost > 0 ? ((p.livePrice - p.avgCost) / p.avgCost) * 100 : 0;
+                  const pos = pnl >= 0;
+                  return (
+                    <tr key={p.mint} className="border-t border-white/10 hover:bg-white/5 cursor-pointer"
+                        onClick={() => {
+                          const row = market.find((r) => r.mint === p.mint);
+                          if (row) setSelected(row);
+                        }}>
+                      <td className="px-3 py-2 font-semibold">{p.symbol}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{p.amount.toFixed(4)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">${p.avgCost.toFixed(6)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">${p.livePrice.toFixed(6)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">${(p.livePrice * p.amount).toFixed(2)}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums font-semibold ${pos ? "text-[oklch(0.55_0.18_150)]" : "text-[color:var(--destructive)]"}`}>
+                        {pos ? "+" : "−"}${Math.abs(pnl).toFixed(2)}<br />
+                        <span className="text-[10px] opacity-80">{pos ? "+" : ""}{pct.toFixed(2)}%</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </section>
 
@@ -315,6 +366,196 @@ function DemoTradingPage() {
             </table>
           </div>
         </section>
+      </div>
+    </div>
+  );
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function MarketDirectory({
+  rows, selected, onPick,
+}: { rows: LiveTokenRow[]; selected: string | null; onPick: (r: LiveTokenRow) => void }) {
+  return (
+    <aside className="glass p-3 flex flex-col gap-2 backdrop-blur-md min-h-[380px]">
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          <Flame className="h-4 w-4 sky-text" />
+          <span className="font-semibold text-sm">Live market · Top {rows.length || 50}</span>
+        </div>
+        <span className="text-[10px] text-muted-foreground">4s refresh</span>
+      </div>
+      <div className="flex-1 overflow-y-auto flex flex-col gap-1 pr-1 -mr-1 max-h-[520px]">
+        {rows.length === 0 ? (
+          Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="glass-pill !rounded-xl h-12 shimmer-glass opacity-50" />
+          ))
+        ) : rows.map((r) => {
+          const up = r.change24h >= 0;
+          const active = selected === r.mint;
+          return (
+            <button
+              key={r.mint}
+              onClick={() => onPick(r)}
+              className={`glass-pill !rounded-xl px-2.5 py-2 flex items-center gap-2 text-left transition ${active ? "ring-2 ring-[color:var(--sky)]" : "hover:bg-white/40 dark:hover:bg-white/10"}`}
+            >
+              {r.image ? (
+                <img src={r.image} alt="" className="h-7 w-7 rounded-full shrink-0 ring-1 ring-white/40" />
+              ) : (
+                <div className="h-7 w-7 rounded-full bg-muted shrink-0" />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-xs truncate">{r.symbol}</span>
+                  <span className="text-[10px] text-muted-foreground truncate">{r.name}</span>
+                </div>
+                <div className="text-[10px] text-muted-foreground tabular-nums">
+                  ${r.priceUsd.toLocaleString(undefined, { maximumFractionDigits: r.priceUsd < 1 ? 8 : 4 })}
+                </div>
+              </div>
+              <span className={`text-[10px] font-bold tabular-nums shrink-0 ${up ? "text-[oklch(0.55_0.18_150)]" : "text-[color:var(--destructive)]"}`}>
+                {up ? "▲" : "▼"}{Math.abs(r.change24h).toFixed(1)}%
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </aside>
+  );
+}
+
+function PumpBoard({
+  rows, selected, onPick,
+}: { rows: PumpTrendingRow[]; selected: string | null; onPick: (r: PumpTrendingRow) => void }) {
+  return (
+    <aside className="glass p-3 flex flex-col gap-2 backdrop-blur-md min-h-[380px]">
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          <Rocket className="h-4 w-4 sky-text" />
+          <span className="font-semibold text-sm">Pump.fun · Graduating</span>
+        </div>
+        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+          <RefreshCw className="h-3 w-3 animate-spin" /> live 1s
+        </span>
+      </div>
+      <div className="flex-1 overflow-y-auto flex flex-col gap-1 pr-1 -mr-1 max-h-[520px]">
+        {rows.length === 0 ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="glass-pill !rounded-xl h-14 shimmer-glass opacity-50" />
+          ))
+        ) : rows.map((r) => {
+          const active = selected === r.mint;
+          return (
+            <button
+              key={r.mint}
+              onClick={() => onPick(r)}
+              className={`glass-pill !rounded-xl px-2.5 py-2 flex flex-col gap-1.5 text-left transition animate-fade-in ${active ? "ring-2 ring-[color:var(--sky)]" : "hover:bg-white/40 dark:hover:bg-white/10"}`}
+            >
+              <div className="flex items-center gap-2">
+                {r.imageUri ? (
+                  <img src={r.imageUri} alt="" className="h-7 w-7 rounded-full shrink-0 ring-1 ring-white/40" />
+                ) : (
+                  <div className="h-7 w-7 rounded-full bg-muted shrink-0" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-xs truncate">{r.symbol}</span>
+                    <span className="text-[10px] text-muted-foreground truncate">{r.name}</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground tabular-nums">
+                    ${r.marketCapUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })} MC
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold tabular-nums shrink-0 sky-text">
+                  {r.progress.toFixed(1)}%
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-white/30 dark:bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{
+                    width: `${Math.min(100, r.progress)}%`,
+                    background: r.progress > 80
+                      ? "linear-gradient(90deg, oklch(0.7 0.2 30), oklch(0.65 0.22 10))"
+                      : "linear-gradient(90deg, oklch(0.72 0.2 232), oklch(0.7 0.18 280))",
+                  }}
+                />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </aside>
+  );
+}
+
+function ChartPanel({
+  selected, series,
+}: { selected: LiveTokenRow | null; series: Array<{ t: number; price: number }> }) {
+  const lastRef = useRef<number | null>(null);
+  const last = series[series.length - 1]?.price ?? selected?.priceUsd ?? 0;
+  const prev = lastRef.current;
+  const flash = prev !== null && prev !== last ? (last > prev ? "up" : "down") : null;
+  useEffect(() => { lastRef.current = last; }, [last]);
+
+  const first = series[0]?.price ?? last;
+  const tickPct = first > 0 ? ((last - first) / first) * 100 : 0;
+  const stroke = tickPct >= 0 ? "oklch(0.72 0.2 232)" : "oklch(0.65 0.22 15)";
+
+  return (
+    <div className="glass p-4 flex flex-col gap-3 backdrop-blur-md min-h-[380px]">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {selected?.image ? (
+            <img src={selected.image} alt="" className="h-8 w-8 rounded-full ring-1 ring-white/40" />
+          ) : (
+            <div className="h-8 w-8 rounded-full bg-muted" />
+          )}
+          <div className="min-w-0">
+            <div className="font-semibold text-sm truncate">{selected?.symbol ?? "—"} <span className="text-muted-foreground text-xs font-normal">{selected?.name ?? ""}</span></div>
+            <div className={`text-xs tabular-nums transition-colors ${flash === "up" ? "text-[oklch(0.55_0.18_150)]" : flash === "down" ? "text-[color:var(--destructive)]" : ""}`}>
+              ${last.toLocaleString(undefined, { maximumFractionDigits: last < 1 ? 10 : 4 })}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`pill text-[10px] tabular-nums ${tickPct >= 0 ? "pill-ok" : "pill-danger"}`}>
+            {tickPct >= 0 ? "+" : ""}{tickPct.toFixed(3)}% session
+          </span>
+          {selected ? (
+            <span className={`pill text-[10px] tabular-nums ${selected.change24h >= 0 ? "pill-ok" : "pill-danger"}`}>
+              {selected.change24h >= 0 ? "+" : ""}{selected.change24h.toFixed(2)}% 24h
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="flex-1 min-h-[260px] rounded-xl overflow-hidden relative">
+        {series.length < 2 ? (
+          <div className="absolute inset-0 grid place-items-center text-xs shimmer-glass">Streaming pool metrics…</div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="chartFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={stroke} stopOpacity={0.4} />
+                  <stop offset="100%" stopColor={stroke} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.7 0 0 / 0.15)" vertical={false} />
+              <XAxis dataKey="t" tickFormatter={(v) => new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                     stroke="oklch(0.6 0 0)" fontSize={10} minTickGap={40} />
+              <YAxis domain={["auto", "auto"]} stroke="oklch(0.6 0 0)" fontSize={10} width={80}
+                     tickFormatter={(v) => `$${Number(v).toFixed(v < 1 ? 8 : 4)}`} />
+              <Tooltip
+                contentStyle={{ background: "var(--background)", border: "1px solid oklch(0.7 0 0 / 0.2)", borderRadius: 12, fontSize: 11 }}
+                labelFormatter={(v) => new Date(v as number).toLocaleTimeString()}
+                formatter={(v: any) => [`$${Number(v).toFixed(Number(v) < 1 ? 10 : 4)}`, "Price"]}
+              />
+              <Area type="monotone" dataKey="price" stroke={stroke} strokeWidth={2} fill="url(#chartFill)" isAnimationActive={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );
