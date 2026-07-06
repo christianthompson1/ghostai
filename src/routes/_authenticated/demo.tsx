@@ -478,7 +478,7 @@ function PumpBoard({
           <span className="font-semibold text-sm">Pump.fun · Graduating</span>
         </div>
         <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-          <RefreshCw className="h-3 w-3 animate-spin" /> live 1s
+          <RefreshCw className="h-3 w-3 animate-spin" /> live 2s
         </span>
       </div>
       <div className="flex-1 overflow-y-auto flex flex-col gap-1 pr-1 -mr-1 max-h-[520px]">
