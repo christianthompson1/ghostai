@@ -89,7 +89,12 @@ export function ChatConsole() {
             </button>
           </header>
 
-          <ChatFeed messages={chat.messages} pending={chat.pending} />
+          <ChatFeed
+            messages={chat.messages}
+            pending={chat.pending}
+            onEdit={chat.editMessage}
+            onDelete={chat.deleteMessage}
+          />
           <Composer value={input} onChange={setInput} onSend={handleSend} disabled={chat.pending} />
         </main>
 

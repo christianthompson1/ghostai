@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, TrendingUp, TrendingDown, Wallet, Sparkles, Flame, Rocket, RefreshCw } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Wallet, Sparkles, Flame, Rocket, RefreshCw, Zap } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
@@ -10,7 +10,8 @@ import {
 } from "@/lib/ghost-backend";
 import {
   fetchLivePrices, fetchTokenSnapshot, fetchPumpTrending,
-  type LiveTokenRow, type PumpTrendingRow,
+  fetchCandles, fetchDemoAccount,
+  type LiveTokenRow, type PumpTrendingRow, type Candle, type CandleTF, type DemoAccountSnapshot,
 } from "@/lib/market-data";
 
 export const Route = createFileRoute("/_authenticated/demo")({
@@ -38,7 +39,13 @@ function DemoTradingPage() {
 
   // ── Selection / chart ──────────────────────────────────────────────────────
   const [selected, setSelected] = useState<LiveTokenRow | null>(null);
-  const [chartSeries, setChartSeries] = useState<Array<{ t: number; price: number }>>([]);
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [candleLoading, setCandleLoading] = useState(false);
+  const [timeframe, setTimeframe] = useState<CandleTF>("1h");
+  const chartRef = useRef<HTMLDivElement | null>(null);
+
+  // ── Backend account snapshot (live PnL) ────────────────────────────────────
+  const [snapshot, setSnapshot] = useState<DemoAccountSnapshot | null>(null);
 
   // ── Trade form ─────────────────────────────────────────────────────────────
   const [amount, setAmount] = useState("100");
@@ -82,38 +89,63 @@ function DemoTradingPage() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  // ── Poll Replit pump-fun endpoint every 1s ─────────────────────────────────
+  // ── Poll Replit pump-fun endpoint every 2s (preserve rows on transient empty) ─
   useEffect(() => {
     let cancelled = false;
     async function tick() {
       const rows = await fetchPumpTrending();
-      if (!cancelled) setPump(rows);
+      if (cancelled) return;
+      // Only overwrite when the backend actually returns data — this stops
+      // the panel from flashing back to skeletons between polls.
+      if (rows.length) setPump(rows);
     }
     tick();
-    const id = setInterval(tick, 1000);
+    const id = setInterval(tick, 2000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  // ── Real-time chart series: every 1s, snapshot the selected token ──────────
+  // ── Historical candles from Replit backend on token / timeframe change ─────
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) { setCandles([]); return; }
     let cancelled = false;
-    setChartSeries([]); // reset on token switch
+    setCandleLoading(true);
+    (async () => {
+      const rows = await fetchCandles(selected.mint, timeframe);
+      if (cancelled) return;
+      setCandles(rows);
+      setCandleLoading(false);
+      // fold latest close back into the market directory so it ticks live
+      const last = rows[rows.length - 1]?.c;
+      if (last) {
+        setMarket((m) => m.map((r) => (r.mint === selected.mint ? { ...r, priceUsd: last } : r)));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selected?.mint, timeframe]);
+
+  // ── Live account snapshot every 2s (server-computed PnL / equity) ──────────
+  useEffect(() => {
+    if (!account?.userId) return;
+    let cancelled = false;
     async function tick() {
-      const snap = await fetchTokenSnapshot(selected!.mint);
-      if (cancelled || !snap?.priceUsd) return;
-      setChartSeries((prev) => {
-        const next = [...prev, { t: Date.now(), price: snap.priceUsd }];
-        // Keep a rolling window of ~120 points
-        return next.length > 120 ? next.slice(next.length - 120) : next;
-      });
-      // also fold the fresh price into the market row so the directory ticks live
-      setMarket((rows) => rows.map((r) => (r.mint === snap.mint ? { ...r, priceUsd: snap.priceUsd, change24h: snap.change24h } : r)));
+      const snap = await fetchDemoAccount(account!.userId);
+      if (!cancelled && snap) setSnapshot(snap);
     }
     tick();
-    const id = setInterval(tick, 1000);
+    const id = setInterval(tick, 2000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [selected?.mint]);
+  }, [account?.userId]);
+
+  // Smooth-scroll to the chart panel — used when a directory / pump row is tapped.
+  function scrollToChart() {
+    requestAnimationFrame(() => {
+      chartRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+  function pickToken(row: LiveTokenRow) {
+    setSelected(row);
+    scrollToChart();
+  }
 
   // ── Positions & derived stats ──────────────────────────────────────────────
   const positions: Position[] = useMemo(() => {
@@ -129,10 +161,12 @@ function DemoTradingPage() {
     });
   }, [account, livePriceByMint]);
 
-  const portfolioValue  = positions.reduce((s, p) => s + p.amount * p.livePrice, 0);
-  const totalEquity     = (account?.balanceUsd ?? 0) + portfolioValue;
-  const totalUnrealized = positions.reduce((s, p) => s + (p.livePrice - p.avgCost) * p.amount, 0);
-  const totalPct        = totalEquity > 0 ? ((totalEquity - 1000) / 1000) * 100 : 0;
+  // Prefer server-computed values when the snapshot is fresh; fall back to local.
+  const portfolioValue  = snapshot?.positionsUsd  ?? positions.reduce((s, p) => s + p.amount * p.livePrice, 0);
+  const cashBalance     = snapshot?.cash          ?? snapshot?.balanceUsd ?? account?.balanceUsd ?? 0;
+  const totalEquity     = snapshot?.totalEquity   ?? (cashBalance + portfolioValue);
+  const totalUnrealized = snapshot?.unrealizedPnl ?? positions.reduce((s, p) => s + (p.livePrice - p.avgCost) * p.amount, 0);
+  const totalPct        = snapshot?.pnlPercent    ?? (totalEquity > 0 ? ((totalEquity - 1000) / 1000) * 100 : 0);
 
   // ── Actions ────────────────────────────────────────────────────────────────
   async function trade(action: "buy" | "sell") {
@@ -181,6 +215,7 @@ function DemoTradingPage() {
       priceUsd: row.marketCapUsd > 0 ? row.marketCapUsd / 1_000_000_000 : 0,
       change24h: 0, liquidityUsd: 0, volume24h: 0, image: row.imageUri ?? undefined,
     });
+    scrollToChart();
   }
 
   return (
@@ -221,7 +256,7 @@ function DemoTradingPage() {
               </div>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Stat label="Cash" value={`$${(account?.balanceUsd ?? 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
+              <Stat label="Cash" value={`$${cashBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
               <Stat label="Positions" value={`$${portfolioValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
               <Stat label="Unrealized PnL"
                     value={`${totalUnrealized >= 0 ? "+" : "−"}$${Math.abs(totalUnrealized).toFixed(2)}`}
@@ -235,8 +270,16 @@ function DemoTradingPage() {
 
         {/* Market + Chart + Pump board */}
         <section className="grid lg:grid-cols-[1fr_1.4fr_1fr] gap-4">
-          <MarketDirectory rows={market} selected={selected?.mint ?? null} onPick={setSelected} />
-          <ChartPanel selected={selected} series={chartSeries} />
+          <MarketDirectory rows={market} selected={selected?.mint ?? null} onPick={pickToken} />
+          <div ref={chartRef}>
+            <ChartPanel
+              selected={selected}
+              candles={candles}
+              loading={candleLoading}
+              timeframe={timeframe}
+              onTimeframe={setTimeframe}
+            />
+          </div>
           <PumpBoard rows={pump} selected={selected?.mint ?? null} onPick={pickPump} />
         </section>
 
@@ -435,7 +478,7 @@ function PumpBoard({
           <span className="font-semibold text-sm">Pump.fun · Graduating</span>
         </div>
         <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-          <RefreshCw className="h-3 w-3 animate-spin" /> live 1s
+          <RefreshCw className="h-3 w-3 animate-spin" /> live 2s
         </span>
       </div>
       <div className="flex-1 overflow-y-auto flex flex-col gap-1 pr-1 -mr-1 max-h-[520px]">
@@ -481,6 +524,7 @@ function PumpBoard({
                   }}
                 />
               </div>
+              {r.aiSignal ? <AiSignalBadge signal={r.aiSignal} /> : null}
             </button>
           );
         })}
@@ -490,17 +534,20 @@ function PumpBoard({
 }
 
 function ChartPanel({
-  selected, series,
-}: { selected: LiveTokenRow | null; series: Array<{ t: number; price: number }> }) {
-  const lastRef = useRef<number | null>(null);
+  selected, candles, loading, timeframe, onTimeframe,
+}: {
+  selected: LiveTokenRow | null;
+  candles: Candle[];
+  loading: boolean;
+  timeframe: CandleTF;
+  onTimeframe: (tf: CandleTF) => void;
+}) {
+  const series = useMemo(() => candles.map((c) => ({ t: c.t, price: c.c })), [candles]);
   const last = series[series.length - 1]?.price ?? selected?.priceUsd ?? 0;
-  const prev = lastRef.current;
-  const flash = prev !== null && prev !== last ? (last > prev ? "up" : "down") : null;
-  useEffect(() => { lastRef.current = last; }, [last]);
-
   const first = series[0]?.price ?? last;
   const tickPct = first > 0 ? ((last - first) / first) * 100 : 0;
   const stroke = tickPct >= 0 ? "oklch(0.72 0.2 232)" : "oklch(0.65 0.22 15)";
+  const tfLabel: Record<CandleTF, string> = { "15m": "6h", "1h": "24h", "1d": "30d" };
 
   return (
     <div className="glass p-4 flex flex-col gap-3 backdrop-blur-md min-h-[380px]">
@@ -513,26 +560,40 @@ function ChartPanel({
           )}
           <div className="min-w-0">
             <div className="font-semibold text-sm truncate">{selected?.symbol ?? "—"} <span className="text-muted-foreground text-xs font-normal">{selected?.name ?? ""}</span></div>
-            <div className={`text-xs tabular-nums transition-colors ${flash === "up" ? "text-[oklch(0.55_0.18_150)]" : flash === "down" ? "text-[color:var(--destructive)]" : ""}`}>
+            <div className="text-xs tabular-nums">
               ${last.toLocaleString(undefined, { maximumFractionDigits: last < 1 ? 10 : 4 })}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <span className={`pill text-[10px] tabular-nums ${tickPct >= 0 ? "pill-ok" : "pill-danger"}`}>
-            {tickPct >= 0 ? "+" : ""}{tickPct.toFixed(3)}% session
+            {tickPct >= 0 ? "+" : ""}{tickPct.toFixed(2)}% · {tfLabel[timeframe]}
           </span>
-          {selected ? (
-            <span className={`pill text-[10px] tabular-nums ${selected.change24h >= 0 ? "pill-ok" : "pill-danger"}`}>
-              {selected.change24h >= 0 ? "+" : ""}{selected.change24h.toFixed(2)}% 24h
-            </span>
-          ) : null}
         </div>
       </div>
 
+      {/* Timeframe tabs — hit the Replit /api/market/candles endpoint */}
+      <div className="self-start glass-pill p-1 flex items-center gap-1">
+        {(["15m", "1h", "1d"] as CandleTF[]).map((tf) => (
+          <button
+            key={tf}
+            onClick={() => onTimeframe(tf)}
+            className={`px-3 py-1 text-[11px] font-semibold rounded-full transition active:scale-95 ${
+              tf === timeframe
+                ? "bg-[color:var(--sky)] text-white shadow"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tf}
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 min-h-[260px] rounded-xl overflow-hidden relative">
-        {series.length < 2 ? (
-          <div className="absolute inset-0 grid place-items-center text-xs shimmer-glass">Streaming pool metrics…</div>
+        {loading || series.length < 2 ? (
+          <div className="absolute inset-0 grid place-items-center text-xs shimmer-glass">
+            {loading ? "Streaming ledger candles…" : "No historical candles for this pool yet."}
+          </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -543,13 +604,16 @@ function ChartPanel({
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.7 0 0 / 0.15)" vertical={false} />
-              <XAxis dataKey="t" tickFormatter={(v) => new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              <XAxis dataKey="t"
+                     tickFormatter={(v) => timeframe === "1d"
+                       ? new Date(v).toLocaleDateString([], { month: "short", day: "numeric" })
+                       : new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                      stroke="oklch(0.6 0 0)" fontSize={10} minTickGap={40} />
               <YAxis domain={["auto", "auto"]} stroke="oklch(0.6 0 0)" fontSize={10} width={80}
                      tickFormatter={(v) => `$${Number(v).toFixed(v < 1 ? 8 : 4)}`} />
               <Tooltip
                 contentStyle={{ background: "var(--background)", border: "1px solid oklch(0.7 0 0 / 0.2)", borderRadius: 12, fontSize: 11 }}
-                labelFormatter={(v) => new Date(v as number).toLocaleTimeString()}
+                labelFormatter={(v) => new Date(v as number).toLocaleString()}
                 formatter={(v: any) => [`$${Number(v).toFixed(Number(v) < 1 ? 10 : 4)}`, "Price"]}
               />
               <Area type="monotone" dataKey="price" stroke={stroke} strokeWidth={2} fill="url(#chartFill)" isAnimationActive={false} />
@@ -557,6 +621,28 @@ function ChartPanel({
           </ResponsiveContainer>
         )}
       </div>
+    </div>
+  );
+}
+
+function AiSignalBadge({ signal }: { signal: string }) {
+  const upper = signal.toUpperCase();
+  const isBull = upper.includes("BULLISH") || upper.includes("BREAKOUT");
+  const isSqueeze = upper.includes("SQUEEZE") || upper.includes("VELOCITY");
+  const glow = isBull
+    ? "oklch(0.72 0.2 150)"
+    : isSqueeze ? "oklch(0.72 0.2 30)" : "var(--sky)";
+  return (
+    <div
+      className="self-start pill text-[9px] font-bold tracking-wider"
+      style={{
+        color: glow,
+        background: `color-mix(in oklab, ${glow} 15%, transparent)`,
+        border: `1px solid color-mix(in oklab, ${glow} 45%, transparent)`,
+        boxShadow: `0 0 12px color-mix(in oklab, ${glow} 55%, transparent)`,
+      }}
+    >
+      <Zap className="h-3 w-3" /> {upper}
     </div>
   );
 }
