@@ -524,6 +524,7 @@ function PumpBoard({
                   }}
                 />
               </div>
+              {r.aiSignal ? <AiSignalBadge signal={r.aiSignal} /> : null}
             </button>
           );
         })}
