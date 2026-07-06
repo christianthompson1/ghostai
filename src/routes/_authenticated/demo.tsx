@@ -39,7 +39,13 @@ function DemoTradingPage() {
 
   // ── Selection / chart ──────────────────────────────────────────────────────
   const [selected, setSelected] = useState<LiveTokenRow | null>(null);
-  const [chartSeries, setChartSeries] = useState<Array<{ t: number; price: number }>>([]);
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [candleLoading, setCandleLoading] = useState(false);
+  const [timeframe, setTimeframe] = useState<CandleTF>("1h");
+  const chartRef = useRef<HTMLDivElement | null>(null);
+
+  // ── Backend account snapshot (live PnL) ────────────────────────────────────
+  const [snapshot, setSnapshot] = useState<DemoAccountSnapshot | null>(null);
 
   // ── Trade form ─────────────────────────────────────────────────────────────
   const [amount, setAmount] = useState("100");
