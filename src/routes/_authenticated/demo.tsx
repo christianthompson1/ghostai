@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, TrendingUp, TrendingDown, Wallet, Sparkles, Flame, Rocket, RefreshCw } from "lucide-react";
+import { ArrowLeft, TrendingUp, TrendingDown, Wallet, Sparkles, Flame, Rocket, RefreshCw, Zap } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
@@ -10,7 +10,8 @@ import {
 } from "@/lib/ghost-backend";
 import {
   fetchLivePrices, fetchTokenSnapshot, fetchPumpTrending,
-  type LiveTokenRow, type PumpTrendingRow,
+  fetchCandles, fetchDemoAccount,
+  type LiveTokenRow, type PumpTrendingRow, type Candle, type CandleTF, type DemoAccountSnapshot,
 } from "@/lib/market-data";
 
 export const Route = createFileRoute("/_authenticated/demo")({
