@@ -262,9 +262,28 @@ export function useChat() {
     }));
   }, [messages, runCommand]);
 
+  const deleteMessage = useCallback(async (id: string) => {
+    setMessages((all) => all.filter((m) => m.id !== id));
+    try { await supabase.from("messages").delete().eq("id", id); } catch { /* ignore */ }
+  }, []);
+
+  const editMessage = useCallback(async (id: string, nextText: string) => {
+    const trimmed = nextText.trim();
+    if (!trimmed) return;
+    setMessages((all) =>
+      all.map((m) => (m.id === id ? { ...m, parts: [{ type: "text", text: trimmed }] } : m)),
+    );
+    try {
+      await supabase.from("messages")
+        .update({ parts: [{ type: "text", text: trimmed }] as any })
+        .eq("id", id);
+    } catch { /* ignore */ }
+  }, []);
+
   return {
     conversations, activeId, messages, pending,
     send, newChat, select, remove,
     sendCommand, runCommand, updateChartTimeframe,
+    deleteMessage, editMessage,
   };
 }
