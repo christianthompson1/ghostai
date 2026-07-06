@@ -167,9 +167,10 @@ export type PumpTrendingRow = {
   imageUri: string | null;
   marketCapUsd: number;
   progress: number;
+  aiSignal?: string | null;
 };
 
-/** GET /api/pumpfun/trending — polled every 1s from the demo dashboard. */
+/** GET /api/pumpfun/trending — polled from the demo dashboard. */
 export async function fetchPumpTrending(): Promise<PumpTrendingRow[]> {
   try {
     const res = await fetch(`${GHOST_BACKEND}/api/pumpfun/trending`, {
@@ -185,8 +186,67 @@ export async function fetchPumpTrending(): Promise<PumpTrendingRow[]> {
       imageUri: t.imageUri ?? null,
       marketCapUsd: Number(t.marketCapUsd) || 0,
       progress: Number(t.progress) || 0,
+      aiSignal: t.aiSignal ?? null,
     }));
   } catch {
     return [];
+  }
+}
+
+// ── Historical candles from Replit backend ───────────────────────────────────
+export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number };
+export type CandleTF = "15m" | "1h" | "1d";
+
+export async function fetchCandles(mint: string, timeframe: CandleTF): Promise<Candle[]> {
+  try {
+    const res = await fetch(
+      `${GHOST_BACKEND}/api/market/candles?token=${encodeURIComponent(mint)}&timeframe=${timeframe}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!res.ok) return [];
+    const json = await res.json().catch(() => null);
+    const rows: any[] = Array.isArray(json?.candles) ? json.candles : [];
+    return rows
+      .map((r) => ({
+        t: Number(r.t ?? r.time ?? r.timestamp) || 0,
+        o: Number(r.o ?? r.open) || 0,
+        h: Number(r.h ?? r.high) || 0,
+        l: Number(r.l ?? r.low) || 0,
+        c: Number(r.c ?? r.close) || 0,
+        v: Number(r.v ?? r.volume) || 0,
+      }))
+      .filter((c) => Number.isFinite(c.c) && c.c > 0)
+      .sort((a, b) => a.t - b.t);
+  } catch {
+    return [];
+  }
+}
+
+// ── Live demo account snapshot ───────────────────────────────────────────────
+export type DemoAccountSnapshot = {
+  userId: string;
+  balanceUsd?: number;
+  cash?: number;
+  positionsUsd?: number;
+  totalEquity?: number;
+  unrealizedPnl?: number;
+  pnlPercent?: number;
+  portfolio?: Record<string, number>;
+  positions?: Array<{
+    mint: string; symbol?: string; amount: number; avgCost?: number;
+    livePrice?: number; unrealizedPnl?: number; pnlPercent?: number;
+  }>;
+};
+
+export async function fetchDemoAccount(userId: string): Promise<DemoAccountSnapshot | null> {
+  try {
+    const res = await fetch(
+      `${GHOST_BACKEND}/api/demo/account?userId=${encodeURIComponent(userId)}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
   }
 }
