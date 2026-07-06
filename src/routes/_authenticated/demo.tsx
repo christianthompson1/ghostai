@@ -256,7 +256,7 @@ function DemoTradingPage() {
               </div>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Stat label="Cash" value={`$${(account?.balanceUsd ?? 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
+              <Stat label="Cash" value={`$${cashBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
               <Stat label="Positions" value={`$${portfolioValue.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
               <Stat label="Unrealized PnL"
                     value={`${totalUnrealized >= 0 ? "+" : "−"}$${Math.abs(totalUnrealized).toFixed(2)}`}
