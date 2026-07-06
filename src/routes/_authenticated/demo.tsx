@@ -89,38 +89,63 @@ function DemoTradingPage() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  // ── Poll Replit pump-fun endpoint every 1s ─────────────────────────────────
+  // ── Poll Replit pump-fun endpoint every 2s (preserve rows on transient empty) ─
   useEffect(() => {
     let cancelled = false;
     async function tick() {
       const rows = await fetchPumpTrending();
-      if (!cancelled) setPump(rows);
+      if (cancelled) return;
+      // Only overwrite when the backend actually returns data — this stops
+      // the panel from flashing back to skeletons between polls.
+      if (rows.length) setPump(rows);
     }
     tick();
-    const id = setInterval(tick, 1000);
+    const id = setInterval(tick, 2000);
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  // ── Real-time chart series: every 1s, snapshot the selected token ──────────
+  // ── Historical candles from Replit backend on token / timeframe change ─────
   useEffect(() => {
-    if (!selected) return;
+    if (!selected) { setCandles([]); return; }
     let cancelled = false;
-    setChartSeries([]); // reset on token switch
+    setCandleLoading(true);
+    (async () => {
+      const rows = await fetchCandles(selected.mint, timeframe);
+      if (cancelled) return;
+      setCandles(rows);
+      setCandleLoading(false);
+      // fold latest close back into the market directory so it ticks live
+      const last = rows[rows.length - 1]?.c;
+      if (last) {
+        setMarket((m) => m.map((r) => (r.mint === selected.mint ? { ...r, priceUsd: last } : r)));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selected?.mint, timeframe]);
+
+  // ── Live account snapshot every 2s (server-computed PnL / equity) ──────────
+  useEffect(() => {
+    if (!account?.userId) return;
+    let cancelled = false;
     async function tick() {
-      const snap = await fetchTokenSnapshot(selected!.mint);
-      if (cancelled || !snap?.priceUsd) return;
-      setChartSeries((prev) => {
-        const next = [...prev, { t: Date.now(), price: snap.priceUsd }];
-        // Keep a rolling window of ~120 points
-        return next.length > 120 ? next.slice(next.length - 120) : next;
-      });
-      // also fold the fresh price into the market row so the directory ticks live
-      setMarket((rows) => rows.map((r) => (r.mint === snap.mint ? { ...r, priceUsd: snap.priceUsd, change24h: snap.change24h } : r)));
+      const snap = await fetchDemoAccount(account!.userId);
+      if (!cancelled && snap) setSnapshot(snap);
     }
     tick();
-    const id = setInterval(tick, 1000);
+    const id = setInterval(tick, 2000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [selected?.mint]);
+  }, [account?.userId]);
+
+  // Smooth-scroll to the chart panel — used when a directory / pump row is tapped.
+  function scrollToChart() {
+    requestAnimationFrame(() => {
+      chartRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+  function pickToken(row: LiveTokenRow) {
+    setSelected(row);
+    scrollToChart();
+  }
 
   // ── Positions & derived stats ──────────────────────────────────────────────
   const positions: Position[] = useMemo(() => {
