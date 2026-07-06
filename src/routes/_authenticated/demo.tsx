@@ -270,8 +270,16 @@ function DemoTradingPage() {
 
         {/* Market + Chart + Pump board */}
         <section className="grid lg:grid-cols-[1fr_1.4fr_1fr] gap-4">
-          <MarketDirectory rows={market} selected={selected?.mint ?? null} onPick={setSelected} />
-          <ChartPanel selected={selected} series={chartSeries} />
+          <MarketDirectory rows={market} selected={selected?.mint ?? null} onPick={pickToken} />
+          <div ref={chartRef}>
+            <ChartPanel
+              selected={selected}
+              candles={candles}
+              loading={candleLoading}
+              timeframe={timeframe}
+              onTimeframe={setTimeframe}
+            />
+          </div>
           <PumpBoard rows={pump} selected={selected?.mint ?? null} onPick={pickPump} />
         </section>
 
