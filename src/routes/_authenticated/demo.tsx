@@ -161,10 +161,12 @@ function DemoTradingPage() {
     });
   }, [account, livePriceByMint]);
 
-  const portfolioValue  = positions.reduce((s, p) => s + p.amount * p.livePrice, 0);
-  const totalEquity     = (account?.balanceUsd ?? 0) + portfolioValue;
-  const totalUnrealized = positions.reduce((s, p) => s + (p.livePrice - p.avgCost) * p.amount, 0);
-  const totalPct        = totalEquity > 0 ? ((totalEquity - 1000) / 1000) * 100 : 0;
+  // Prefer server-computed values when the snapshot is fresh; fall back to local.
+  const portfolioValue  = snapshot?.positionsUsd  ?? positions.reduce((s, p) => s + p.amount * p.livePrice, 0);
+  const cashBalance     = snapshot?.cash          ?? snapshot?.balanceUsd ?? account?.balanceUsd ?? 0;
+  const totalEquity     = snapshot?.totalEquity   ?? (cashBalance + portfolioValue);
+  const totalUnrealized = snapshot?.unrealizedPnl ?? positions.reduce((s, p) => s + (p.livePrice - p.avgCost) * p.amount, 0);
+  const totalPct        = snapshot?.pnlPercent    ?? (totalEquity > 0 ? ((totalEquity - 1000) / 1000) * 100 : 0);
 
   // ── Actions ────────────────────────────────────────────────────────────────
   async function trade(action: "buy" | "sell") {
