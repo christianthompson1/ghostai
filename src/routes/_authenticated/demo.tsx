@@ -534,17 +534,20 @@ function PumpBoard({
 }
 
 function ChartPanel({
-  selected, series,
-}: { selected: LiveTokenRow | null; series: Array<{ t: number; price: number }> }) {
-  const lastRef = useRef<number | null>(null);
+  selected, candles, loading, timeframe, onTimeframe,
+}: {
+  selected: LiveTokenRow | null;
+  candles: Candle[];
+  loading: boolean;
+  timeframe: CandleTF;
+  onTimeframe: (tf: CandleTF) => void;
+}) {
+  const series = useMemo(() => candles.map((c) => ({ t: c.t, price: c.c })), [candles]);
   const last = series[series.length - 1]?.price ?? selected?.priceUsd ?? 0;
-  const prev = lastRef.current;
-  const flash = prev !== null && prev !== last ? (last > prev ? "up" : "down") : null;
-  useEffect(() => { lastRef.current = last; }, [last]);
-
   const first = series[0]?.price ?? last;
   const tickPct = first > 0 ? ((last - first) / first) * 100 : 0;
   const stroke = tickPct >= 0 ? "oklch(0.72 0.2 232)" : "oklch(0.65 0.22 15)";
+  const tfLabel: Record<CandleTF, string> = { "15m": "6h", "1h": "24h", "1d": "30d" };
 
   return (
     <div className="glass p-4 flex flex-col gap-3 backdrop-blur-md min-h-[380px]">
@@ -557,26 +560,40 @@ function ChartPanel({
           )}
           <div className="min-w-0">
             <div className="font-semibold text-sm truncate">{selected?.symbol ?? "—"} <span className="text-muted-foreground text-xs font-normal">{selected?.name ?? ""}</span></div>
-            <div className={`text-xs tabular-nums transition-colors ${flash === "up" ? "text-[oklch(0.55_0.18_150)]" : flash === "down" ? "text-[color:var(--destructive)]" : ""}`}>
+            <div className="text-xs tabular-nums">
               ${last.toLocaleString(undefined, { maximumFractionDigits: last < 1 ? 10 : 4 })}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <span className={`pill text-[10px] tabular-nums ${tickPct >= 0 ? "pill-ok" : "pill-danger"}`}>
-            {tickPct >= 0 ? "+" : ""}{tickPct.toFixed(3)}% session
+            {tickPct >= 0 ? "+" : ""}{tickPct.toFixed(2)}% · {tfLabel[timeframe]}
           </span>
-          {selected ? (
-            <span className={`pill text-[10px] tabular-nums ${selected.change24h >= 0 ? "pill-ok" : "pill-danger"}`}>
-              {selected.change24h >= 0 ? "+" : ""}{selected.change24h.toFixed(2)}% 24h
-            </span>
-          ) : null}
         </div>
       </div>
 
+      {/* Timeframe tabs — hit the Replit /api/market/candles endpoint */}
+      <div className="self-start glass-pill p-1 flex items-center gap-1">
+        {(["15m", "1h", "1d"] as CandleTF[]).map((tf) => (
+          <button
+            key={tf}
+            onClick={() => onTimeframe(tf)}
+            className={`px-3 py-1 text-[11px] font-semibold rounded-full transition active:scale-95 ${
+              tf === timeframe
+                ? "bg-[color:var(--sky)] text-white shadow"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tf}
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 min-h-[260px] rounded-xl overflow-hidden relative">
-        {series.length < 2 ? (
-          <div className="absolute inset-0 grid place-items-center text-xs shimmer-glass">Streaming pool metrics…</div>
+        {loading || series.length < 2 ? (
+          <div className="absolute inset-0 grid place-items-center text-xs shimmer-glass">
+            {loading ? "Streaming ledger candles…" : "No historical candles for this pool yet."}
+          </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -587,13 +604,16 @@ function ChartPanel({
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.7 0 0 / 0.15)" vertical={false} />
-              <XAxis dataKey="t" tickFormatter={(v) => new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+              <XAxis dataKey="t"
+                     tickFormatter={(v) => timeframe === "1d"
+                       ? new Date(v).toLocaleDateString([], { month: "short", day: "numeric" })
+                       : new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                      stroke="oklch(0.6 0 0)" fontSize={10} minTickGap={40} />
               <YAxis domain={["auto", "auto"]} stroke="oklch(0.6 0 0)" fontSize={10} width={80}
                      tickFormatter={(v) => `$${Number(v).toFixed(v < 1 ? 8 : 4)}`} />
               <Tooltip
                 contentStyle={{ background: "var(--background)", border: "1px solid oklch(0.7 0 0 / 0.2)", borderRadius: 12, fontSize: 11 }}
-                labelFormatter={(v) => new Date(v as number).toLocaleTimeString()}
+                labelFormatter={(v) => new Date(v as number).toLocaleString()}
                 formatter={(v: any) => [`$${Number(v).toFixed(Number(v) < 1 ? 10 : 4)}`, "Price"]}
               />
               <Area type="monotone" dataKey="price" stroke={stroke} strokeWidth={2} fill="url(#chartFill)" isAnimationActive={false} />
@@ -601,6 +621,28 @@ function ChartPanel({
           </ResponsiveContainer>
         )}
       </div>
+    </div>
+  );
+}
+
+function AiSignalBadge({ signal }: { signal: string }) {
+  const upper = signal.toUpperCase();
+  const isBull = upper.includes("BULLISH") || upper.includes("BREAKOUT");
+  const isSqueeze = upper.includes("SQUEEZE") || upper.includes("VELOCITY");
+  const glow = isBull
+    ? "oklch(0.72 0.2 150)"
+    : isSqueeze ? "oklch(0.72 0.2 30)" : "var(--sky)";
+  return (
+    <div
+      className="self-start pill text-[9px] font-bold tracking-wider"
+      style={{
+        color: glow,
+        background: `color-mix(in oklab, ${glow} 15%, transparent)`,
+        border: `1px solid color-mix(in oklab, ${glow} 45%, transparent)`,
+        boxShadow: `0 0 12px color-mix(in oklab, ${glow} 55%, transparent)`,
+      }}
+    >
+      <Zap className="h-3 w-3" /> {upper}
     </div>
   );
 }
