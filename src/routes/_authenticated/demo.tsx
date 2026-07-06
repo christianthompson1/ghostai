@@ -215,6 +215,7 @@ function DemoTradingPage() {
       priceUsd: row.marketCapUsd > 0 ? row.marketCapUsd / 1_000_000_000 : 0,
       change24h: 0, liquidityUsd: 0, volume24h: 0, image: row.imageUri ?? undefined,
     });
+    scrollToChart();
   }
 
   return (
