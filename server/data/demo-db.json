@@ -1,0 +1,75 @@
+{
+  "accounts": {
+    "persist-user-1": {
+      "userId": "persist-user-1",
+      "balanceUsd": 1000,
+      "portfolio": {},
+      "trades": [],
+      "createdAt": "2026-07-07T01:21:54.453Z"
+    },
+    "trader-1": {
+      "userId": "trader-1",
+      "balanceUsd": 957.071619,
+      "portfolio": {},
+      "trades": [
+        {
+          "id": "ighibg47",
+          "action": "buy",
+          "mint": "G7t1jRwpPsLSYXErjk7xPYkoz6yzSJb1A8AqpDrTpump",
+          "symbol": "Black",
+          "amount": 13586204.148776833,
+          "priceUsd": 0.000003680203789996892,
+          "totalUsd": 50,
+          "timestamp": "2026-07-07T01:22:04.752Z",
+          "autoTradeId": "fws1u2tr"
+        },
+        {
+          "id": "xprzmwil",
+          "action": "sell",
+          "mint": "G7t1jRwpPsLSYXErjk7xPYkoz6yzSJb1A8AqpDrTpump",
+          "symbol": "Black",
+          "amount": 13586204.148776833,
+          "priceUsd": 5.205e-7,
+          "totalUsd": 7.071619,
+          "timestamp": "2026-07-07T01:23:04.772Z",
+          "autoTradeId": "fws1u2tr"
+        }
+      ],
+      "createdAt": "2026-07-07T01:22:02.607Z"
+    }
+  },
+  "autoTrades": {
+    "fws1u2tr": {
+      "sessionId": "fws1u2tr",
+      "userId": "trader-1",
+      "status": "COMPLETED",
+      "durationMinutes": 1,
+      "tradeAmountUsd": 50,
+      "startedAt": "2026-07-07T01:22:02.615Z",
+      "selectedToken": {
+        "mint": "G7t1jRwpPsLSYXErjk7xPYkoz6yzSJb1A8AqpDrTpump",
+        "symbol": "Black",
+        "priceUsd": 0.000003680203789996892,
+        "progress": 5.3336286811549165,
+        "aiSignal": null
+      },
+      "entryPrice": 0.000003680203789996892,
+      "tokensHeld": 13586204.148776833,
+      "executedAt": "2026-07-07T01:22:04.752Z",
+      "expiresAt": "2026-07-07T01:23:04.752Z",
+      "exitPrice": 5.205e-7,
+      "pnl": -42.928381,
+      "pnlPercent": -85.8568,
+      "completedAt": "2026-07-07T01:23:04.772Z"
+    },
+    "682lfz8u": {
+      "sessionId": "682lfz8u",
+      "userId": "trader-1",
+      "status": "FAILED",
+      "durationMinutes": 1,
+      "tradeAmountUsd": 30,
+      "startedAt": "2026-07-07T01:23:54.525Z",
+      "failReason": "No suitable high-volatility token found — try again when the market is more active"
+    }
+  }
+}
