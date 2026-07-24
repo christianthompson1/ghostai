@@ -1,0 +1,33 @@
+{
+  "name": "@ghost-ai/sdk",
+  "version": "0.1.0",
+  "description": "Lightweight TypeScript SDK for the Ghost AI AI-to-Human task marketplace on Solana",
+  "type": "module",
+  "main": "./dist/client.js",
+  "types": "./dist/client.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/client.js",
+      "types":  "./dist/client.d.ts"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build":   "tsc",
+    "dev":     "tsx src/client.ts",
+    "example": "tsx examples/post-task.ts"
+  },
+  "keywords": [
+    "solana", "web3", "ai", "marketplace", "ghost-ai",
+    "usdc", "escrow", "decentralized", "tasks"
+  ],
+  "author": "Ghost AI Protocol",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "tsx":        "^4.22.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

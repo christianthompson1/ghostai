@@ -9,6 +9,7 @@
 
 import express, { type Request, type Response, type NextFunction } from "express";
 import { router as apiRouter } from "./routes/api.js";
+import { v1Router }            from "./routes/v1/router.js";
 import { startPumpPortalClient } from "./lib/pumpportal-ws.js";
 
 const app = express();
@@ -47,7 +48,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── Routes ───────────────────────────────────────────────────────────────────
-app.use("/api", apiRouter);
+app.use("/api",    apiRouter);   // existing market/demo/pumpfun routes
+app.use("/api/v1", v1Router);    // Ghost AI Protocol API v1
 
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get("/health", (_req: Request, res: Response) => {
@@ -66,8 +68,9 @@ app.use((_req: Request, res: Response) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`[Ghost AI Server] Running on http://0.0.0.0:${PORT}`);
-  console.log(`[Ghost AI Server] Health: http://0.0.0.0:${PORT}/health`);
-  console.log(`[Ghost AI Server] API:    http://0.0.0.0:${PORT}/api`);
+  console.log(`[Ghost AI Server] Health:      http://0.0.0.0:${PORT}/health`);
+  console.log(`[Ghost AI Server] Market API:  http://0.0.0.0:${PORT}/api`);
+  console.log(`[Ghost AI Server] Protocol v1: http://0.0.0.0:${PORT}/api/v1`);
 
   // Boot the Pump.fun live data pipeline — connects to PumpPortal WebSocket
   // and begins tracking bonding-curve token states in memory.
