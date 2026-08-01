@@ -4,8 +4,10 @@
  * message) instead of crashing the UI. The chart & audit widgets show a
  * glass shimmer while these promises resolve.
  */
-export const GHOST_BACKEND =
-  "https://53f91562-532a-4457-b69f-e770ae7cc385-00-1odxz0gc2gyuo.janeway.replit.dev";
+import { BACKEND_URL } from "./api";
+
+/** Absolute backend engine origin (from `VITE_BACKEND_URL`). */
+export const GHOST_BACKEND = BACKEND_URL;
 
 const DEXSCREENER = "https://api.dexscreener.com";
 const GECKOTERMINAL = "https://api.geckoterminal.com/api/v2";

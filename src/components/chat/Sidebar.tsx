@@ -1,4 +1,4 @@
-import { Plus, MessageSquare, Sun, Moon, LogOut, Trash2, X, LineChart } from "lucide-react";
+import { Plus, MessageSquare, Sun, Moon, LogOut, Trash2, X, LineChart, ClipboardList, UserRound } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import logo from "@/assets/ghost-ai-logo.asset.json";
 import { useTheme } from "@/hooks/useTheme";
@@ -48,15 +48,21 @@ export function Sidebar({
         <Plus className="h-4 w-4" /> New chat
       </button>
 
-      <Link
-        to="/demo"
-        onClick={onClose}
-        className="side-item"
-        activeProps={{ className: "side-item active" }}
-      >
-        <LineChart className="h-3.5 w-3.5 shrink-0 sky-text" />
-        <span className="truncate">Demo Paper Trading</span>
-      </Link>
+      <nav className="flex flex-col gap-1">
+        <Link to="/trade" onClick={onClose} className="side-item" activeProps={{ className: "side-item active" }}>
+          <LineChart className="h-3.5 w-3.5 shrink-0 sky-text" />
+          <span className="truncate">Paper Trading</span>
+        </Link>
+        <Link to="/tasks" onClick={onClose} className="side-item" activeProps={{ className: "side-item active" }}>
+          <ClipboardList className="h-3.5 w-3.5 shrink-0 sky-text" />
+          <span className="truncate">Task Marketplace</span>
+        </Link>
+        <Link to="/profile" onClick={onClose} className="side-item" activeProps={{ className: "side-item active" }}>
+          <UserRound className="h-3.5 w-3.5 shrink-0 sky-text" />
+          <span className="truncate">Wallet Hub</span>
+        </Link>
+      </nav>
+
 
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground px-2 mt-1">Quick prompts</div>
       <div className="flex flex-col gap-1">
