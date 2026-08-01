@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedTradeRouteImport } from './routes/_authenticated/trade'
 import { Route as AuthenticatedDemoRouteImport } from './routes/_authenticated/demo'
 
 const AuthRoute = AuthRouteImport.update({
@@ -28,6 +29,11 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedTradeRoute = AuthenticatedTradeRouteImport.update({
+  id: '/trade',
+  path: '/trade',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDemoRoute = AuthenticatedDemoRouteImport.update({
   id: '/demo',
   path: '/demo',
@@ -38,10 +44,12 @@ export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/auth': typeof AuthRoute
   '/demo': typeof AuthenticatedDemoRoute
+  '/trade': typeof AuthenticatedTradeRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/demo': typeof AuthenticatedDemoRoute
+  '/trade': typeof AuthenticatedTradeRoute
   '/': typeof AuthenticatedIndexRoute
 }
 export interface FileRoutesById {
@@ -49,18 +57,20 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/demo': typeof AuthenticatedDemoRoute
+  '/_authenticated/trade': typeof AuthenticatedTradeRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/demo'
+  fullPaths: '/' | '/auth' | '/demo' | '/trade'
   fileRoutesByTo: FileRoutesByTo
-  to: '/auth' | '/demo' | '/'
+  to: '/auth' | '/demo' | '/trade' | '/'
   id:
     | '__root__'
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/demo'
+    | '/_authenticated/trade'
     | '/_authenticated/'
   fileRoutesById: FileRoutesById
 }
@@ -92,6 +102,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/trade': {
+      id: '/_authenticated/trade'
+      path: '/trade'
+      fullPath: '/trade'
+      preLoaderRoute: typeof AuthenticatedTradeRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/demo': {
       id: '/_authenticated/demo'
       path: '/demo'
@@ -104,11 +121,13 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDemoRoute: typeof AuthenticatedDemoRoute
+  AuthenticatedTradeRoute: typeof AuthenticatedTradeRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDemoRoute: AuthenticatedDemoRoute,
+  AuthenticatedTradeRoute: AuthenticatedTradeRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
 }
 
