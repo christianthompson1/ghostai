@@ -172,7 +172,7 @@ function TradePage() {
   const list = searchRows ?? markets;
 
   return (
-    <div className="min-h-screen w-full bg-[var(--background)] px-3 sm:px-6 py-4 sm:py-6">
+    <div className="min-h-screen w-full bg-[var(--background)] px-3 sm:px-6 py-4 sm:py-6 pb-28">
       <div className="mx-auto max-w-7xl flex flex-col gap-4">
         {/* Header */}
         <header className="glass rounded-2xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
