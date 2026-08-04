@@ -44,12 +44,15 @@ export function ChatConsole() {
     setSidebarOpen(false);
   }
 
-  function handleSend() {
-    const v = input.trim();
-    if (!v) return;
-    setInput("");
-    chat.send(v);
-  }
+  const send = chat.send;
+  const handleSend = useCallback(() => {
+    setInput((v) => {
+      const trimmed = v.trim();
+      if (trimmed) send(trimmed);
+      return trimmed ? "" : v;
+    });
+  }, [send]);
+
 
   function handlePickPumpToken(t: { mint: string; symbol: string }) {
     chat.sendCommand(
