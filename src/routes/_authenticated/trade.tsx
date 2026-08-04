@@ -216,21 +216,8 @@ function TradePage() {
                 </div>
               ) : null}
             </div>
-            <div className="rounded-xl overflow-hidden border border-white/30 bg-white/20 h-[420px]">
-              {selected ? (
-                <iframe
-                  key={selected.mint}
-                  title={`${selected.symbol} candlestick chart`}
-                  src={`https://dexscreener.com/solana/${selected.mint}?embed=1&theme=light&trades=0&info=0`}
-                  className="w-full h-full border-0"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="h-full grid place-items-center">
-                  <div className="shimmer-glass h-24 w-3/4 rounded-xl" />
-                </div>
-              )}
-            </div>
+            <GlassCandleChart mint={selected?.mint ?? null} symbol={selected?.symbol} />
+
           </section>
 
           {/* Ticket */}
