@@ -250,7 +250,7 @@ function ProfilePage() {
           <div className="grid grid-cols-3 gap-2">
             <QuickAction icon={<ArrowDownLeft className="h-5 w-5" />} label="Receive" onClick={() => setReceiveOpen(true)} disabled={!wallet} />
             <QuickAction icon={<ArrowUpRight className="h-5 w-5" />} label="Send" onClick={() => setSendOpen(true)} disabled={!wallet} />
-            <QuickActionLink icon={<Repeat className="h-5 w-5" />} label="Trade" to="/trade" />
+            <QuickActionLink icon={<Repeat className="h-5 w-5" />} label="Trade" />
           </div>
         </section>
 
@@ -418,10 +418,10 @@ function QuickAction({ icon, label, onClick, disabled }: { icon: React.ReactNode
   );
 }
 
-function QuickActionLink({ icon, label, to }: { icon: React.ReactNode; label: string; to: string }) {
+function QuickActionLink({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
     <Link
-      to={to}
+      to="/trade"
       className="glass-pill !rounded-2xl py-3 flex flex-col items-center gap-1 text-xs font-semibold active:scale-95 transition"
     >
       <span className="sky-text">{icon}</span>
@@ -476,5 +476,3 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
     </div>
   );
 }
-
-export { QuickAction as _QuickAction };
