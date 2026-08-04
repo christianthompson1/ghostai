@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Menu, Rocket } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
