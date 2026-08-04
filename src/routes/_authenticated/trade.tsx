@@ -8,6 +8,9 @@ import {
   searchMarkets, syncTradeToBackend, START_CASH,
   type MarketRow, type PaperState,
 } from "@/lib/trade-store";
+import { GlassCandleChart } from "@/components/charts/GlassCandleChart";
+import { NavDock } from "@/components/nav/NavDock";
+
 
 export const Route = createFileRoute("/_authenticated/trade")({
   ssr: false,
