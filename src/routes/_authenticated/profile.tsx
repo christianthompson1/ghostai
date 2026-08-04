@@ -312,6 +312,12 @@ function ProfilePage() {
         <section className="glass rounded-2xl p-4 flex flex-col gap-3">
           <div className="flex items-center gap-2"><Wallet className="h-4 w-4 sky-text" /><span className="font-semibold">Solana wallet</span></div>
           <div className="flex gap-2 flex-wrap">
+            <button onClick={() => connectProvider("phantom")} className="btn-glass text-sm">Connect Phantom</button>
+            <button onClick={() => connectProvider("solflare")} className="btn-glass text-sm">Connect Solflare</button>
+            <button onClick={() => connectProvider("backpack")} className="btn-glass text-sm">Connect Backpack</button>
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
             <input
               value={walletDraft}
               onChange={(e) => setWalletDraft(e.target.value)}
