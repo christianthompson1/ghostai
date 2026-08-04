@@ -262,12 +262,13 @@ function TradePage() {
               ≈ {Number.isFinite(est) ? est.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "—"} {selected?.symbol ?? ""} @ {usd(livePrice, 2)}
             </p>
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => trade("buy")} disabled={!selected} className="btn-primary justify-center disabled:opacity-50">
-                <TrendingUp className="h-4 w-4" /> Buy
+              <button onClick={() => trade("buy")} disabled={!selected || !!busy} className="btn-primary justify-center disabled:opacity-50">
+                {busy === "buy" ? <span className="spinner" /> : <TrendingUp className="h-4 w-4" />} Buy
               </button>
-              <button onClick={() => trade("sell")} disabled={!selected} className="btn-glass justify-center disabled:opacity-50">
-                <TrendingDown className="h-4 w-4" /> Sell
+              <button onClick={() => trade("sell")} disabled={!selected || !!busy} className="btn-glass justify-center disabled:opacity-50">
+                {busy === "sell" ? <span className="spinner" /> : <TrendingDown className="h-4 w-4" />} Sell
               </button>
+
             </div>
             {notice ? (
               <div className={`pill ${notice.ok ? "pill-ok" : "pill-danger"} w-full justify-center`}>{notice.msg}</div>
@@ -388,7 +389,10 @@ function TradePage() {
           </aside>
         </div>
       ) : null}
+
+      <NavDock />
     </div>
+
   );
 }
 
