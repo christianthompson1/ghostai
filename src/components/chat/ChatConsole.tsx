@@ -23,6 +23,17 @@ export function ChatConsole() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
 
+  // Broadcast the newest assistant reply so voice mode can read it aloud.
+  const lastSpokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    const last = chat.messages[chat.messages.length - 1];
+    if (!last || last.role !== "assistant" || last.id === lastSpokenRef.current) return;
+    const text = last.parts.find((p: any) => p.type === "text")?.text;
+    lastSpokenRef.current = last.id;
+    if (text) window.dispatchEvent(new CustomEvent("ghost:assistant-reply", { detail: text }));
+  }, [chat.messages]);
+
+
   async function signOut() {
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
