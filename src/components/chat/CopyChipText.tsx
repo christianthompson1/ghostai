@@ -69,7 +69,7 @@ const components: Components = {
 
 export function CopyChipText({ text }: { text: string }) {
   return (
-    <div className="prose-chat text-sm break-all whitespace-pre-wrap overflow-hidden max-w-full [word-break:break-word]">
+    <div className="prose-chat text-sm chat-text whitespace-pre-wrap overflow-hidden max-w-full">
       <ReactMarkdown components={components}>{text}</ReactMarkdown>
     </div>
   );
