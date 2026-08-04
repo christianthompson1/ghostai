@@ -46,6 +46,8 @@ function TradePage() {
   const [searching, setSearching] = useState(false);
   const [amount, setAmount] = useState("50");
   const [notice, setNotice] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [busy, setBusy] = useState<"buy" | "sell" | null>(null);
+
 
   // ── Restore persisted portfolio ────────────────────────────────────────────
   useEffect(() => {
@@ -130,7 +132,7 @@ function TradePage() {
   const est = Number(amount) / (livePrice || 1);
 
   function trade(action: "buy" | "sell") {
-    if (!selected) return;
+    if (!selected || busy) return;
     const usdAmount = Number(amount);
     if (!Number.isFinite(usdAmount) || usdAmount <= 0) {
       setNotice({ ok: false, msg: "Enter a valid USD amount" });
@@ -141,12 +143,20 @@ function TradePage() {
       action, mint: selected.mint, symbol: selected.symbol,
       amount: +tokens.toFixed(9), priceUsd: livePrice,
     };
+    setBusy(action);
+    // Optimistic: portfolio updates instantly, backend mirror is fire-and-forget.
     const res = applyTrade(state, input);
-    if (!res.ok) { setNotice({ ok: false, msg: res.error ?? "Trade rejected" }); return; }
+    if (!res.ok) {
+      setBusy(null);
+      setNotice({ ok: false, msg: res.error ?? "Trade rejected" });
+      return;
+    }
     mutate(res.state);
     syncTradeToBackend(res.state, input);
     setNotice({ ok: true, msg: `${action === "buy" ? "Bought" : "Sold"} ${input.amount.toFixed(4)} ${selected.symbol}` });
+    window.setTimeout(() => setBusy(null), 450);
   }
+
 
   function resetDesk() {
     mutate(emptyState(state.userId));
