@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ArrowLeft, ClipboardCheck, Coins, RefreshCw, Send, X } from "lucide-react";
 import { apiGet, apiPost } from "@/lib/api";
+import { NavDock } from "@/components/nav/NavDock";
 
 export const Route = createFileRoute("/_authenticated/tasks")({
   ssr: false,
@@ -65,7 +66,7 @@ function TasksPage() {
   }, [notice]);
 
   return (
-    <div className="min-h-screen w-full bg-[var(--background)] px-3 sm:px-6 py-4 sm:py-6">
+    <div className="min-h-screen w-full bg-[var(--background)] px-3 sm:px-6 py-4 sm:py-6 pb-28">
       <div className="mx-auto max-w-5xl flex flex-col gap-4">
         <header className="glass rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -116,6 +117,8 @@ function TasksPage() {
           onResult={(msg, ok) => { setNotice({ ok, msg }); setActive(null); if (ok) load(); }}
         />
       ) : null}
+
+      <NavDock />
     </div>
   );
 }
