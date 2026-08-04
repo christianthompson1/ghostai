@@ -132,6 +132,32 @@ function ProfilePage() {
     setNotice({ ok: true, msg: v ? "Wallet linked" : "Wallet unlinked" });
   }
 
+  /** Connect an injected Solana wallet extension and link its public key. */
+  async function connectProvider(kind: "phantom" | "solflare" | "backpack") {
+    const w = window as any;
+    const provider =
+      kind === "phantom" ? (w.phantom?.solana ?? (w.solana?.isPhantom ? w.solana : null))
+      : kind === "solflare" ? (w.solflare ?? (w.solana?.isSolflare ? w.solana : null))
+      : (w.backpack ?? w.xnft?.solana ?? null);
+    if (!provider?.connect) {
+      setNotice({ ok: false, msg: `${kind[0].toUpperCase()}${kind.slice(1)} extension not detected` });
+      return;
+    }
+    try {
+      const res = await provider.connect();
+      const key = String(res?.publicKey ?? provider.publicKey ?? "");
+      if (!key) throw new Error("no key");
+      setWallet(key);
+      setWalletDraft(key);
+      window.localStorage.setItem(WALLET_KEY, key);
+      setScan(null);
+      setNotice({ ok: true, msg: `${kind} wallet linked` });
+    } catch {
+      setNotice({ ok: false, msg: "Wallet connection was rejected" });
+    }
+  }
+
+
   async function copy(value: string, id: string) {
     await navigator.clipboard.writeText(value);
     setCopied(id);
