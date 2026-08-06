@@ -3,7 +3,7 @@
  * (`VITE_BACKEND_URL`). No hardcoded token lists, no direct DEX aggregator
  * calls from the browser.
  */
-import { API } from "./api";
+import { API, apiGet } from "./api";
 
 export type LiveTokenRow = {
   mint: string;
