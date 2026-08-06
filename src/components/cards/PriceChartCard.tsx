@@ -11,7 +11,8 @@ export function PriceChartCard({ data }: { data: any; messageId?: string; partIn
   );
   const [points, setPoints] = useState<OhlcvPoint[]>([]);
   const [loading, setLoading] = useState(false);
-  const pool = data.poolAddress ?? data.pairAddress;
+  // Backend OHLCV is keyed by mint/symbol; pool address kept as a fallback.
+  const pool = data.address ?? data.mint ?? data.symbol ?? data.poolAddress ?? data.pairAddress;
 
   useEffect(() => {
     let cancelled = false;
