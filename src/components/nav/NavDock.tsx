@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { MessageSquare, CandlestickChart, User } from "lucide-react";
+import { MessageSquare, CandlestickChart, User, Wallet } from "lucide-react";
 
 /**
  * Floating liquid-glass navigation dock.
