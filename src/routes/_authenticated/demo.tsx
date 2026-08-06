@@ -197,7 +197,7 @@ function DemoTradingPage() {
     setAccount(res.account);
     setToast({
       kind: "ok",
-      msg: `${action === "buy" ? "Bought" : "Sold"} ${tokenAmount.toFixed(4)} ${selected.symbol}${res.source === "local" ? " · offline" : ""}`,
+      msg: `${action === "buy" ? "Bought" : "Sold"} ${tokenAmount.toFixed(4)} ${selected.symbol}`,
     });
   }
 

@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { MessageSquare, CandlestickChart, User } from "lucide-react";
+import { MessageSquare, CandlestickChart, User, Wallet } from "lucide-react";
 
 /**
  * Floating liquid-glass navigation dock.
@@ -13,6 +13,7 @@ export function NavDock() {
   const items = [
     { to: "/trade", label: "Trade", Icon: CandlestickChart },
     { to: "/", label: "Chat", Icon: MessageSquare },
+    { to: "/wallet", label: "Wallet", Icon: Wallet },
     { to: "/profile", label: "Profile", Icon: User },
   ] as const;
 

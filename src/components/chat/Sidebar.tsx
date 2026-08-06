@@ -1,5 +1,6 @@
-import { Plus, MessageSquare, Sun, Moon, LogOut, Trash2, X, LineChart, ClipboardList, UserRound } from "lucide-react";
+import { Plus, MessageSquare, Sun, Moon, LogOut, Trash2, X, LineChart, ClipboardList, UserRound, Home, Wallet } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { WalletButton } from "@/components/wallet/WalletButton";
 import logo from "@/assets/ghost-ai-logo.asset.json";
 import { useTheme } from "@/hooks/useTheme";
 
@@ -49,19 +50,34 @@ export function Sidebar({
       </button>
 
       <nav className="flex flex-col gap-1">
+        <Link to="/" onClick={onClose} className="side-item" activeProps={{ className: "side-item active" }}>
+          <Home className="h-3.5 w-3.5 shrink-0 sky-text" />
+          <span className="truncate">Home</span>
+        </Link>
+        <Link to="/tasks" onClick={onClose} className="side-item" activeProps={{ className: "side-item active" }}>
+          <ClipboardList className="h-3.5 w-3.5 shrink-0 sky-text" />
+          <span className="truncate">Tasks</span>
+        </Link>
+        <Link to="/wallet" onClick={onClose} className="side-item" activeProps={{ className: "side-item active" }}>
+          <Wallet className="h-3.5 w-3.5 shrink-0 sky-text" />
+          <span className="truncate">Wallet</span>
+        </Link>
+        <Link to="/demo" onClick={onClose} className="side-item" activeProps={{ className: "side-item active" }}>
+          <LineChart className="h-3.5 w-3.5 shrink-0 sky-text" />
+          <span className="truncate">Demo</span>
+        </Link>
         <Link to="/trade" onClick={onClose} className="side-item" activeProps={{ className: "side-item active" }}>
           <LineChart className="h-3.5 w-3.5 shrink-0 sky-text" />
           <span className="truncate">Paper Trading</span>
         </Link>
-        <Link to="/tasks" onClick={onClose} className="side-item" activeProps={{ className: "side-item active" }}>
-          <ClipboardList className="h-3.5 w-3.5 shrink-0 sky-text" />
-          <span className="truncate">Task Marketplace</span>
-        </Link>
         <Link to="/profile" onClick={onClose} className="side-item" activeProps={{ className: "side-item active" }}>
           <UserRound className="h-3.5 w-3.5 shrink-0 sky-text" />
-          <span className="truncate">Wallet Hub</span>
+          <span className="truncate">Profile</span>
         </Link>
       </nav>
+
+      <div className="px-1"><WalletButton /></div>
+
 
 
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground px-2 mt-1">Quick prompts</div>
