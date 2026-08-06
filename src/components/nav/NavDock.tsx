@@ -13,6 +13,7 @@ export function NavDock() {
   const items = [
     { to: "/trade", label: "Trade", Icon: CandlestickChart },
     { to: "/", label: "Chat", Icon: MessageSquare },
+    { to: "/wallet", label: "Wallet", Icon: Wallet },
     { to: "/profile", label: "Profile", Icon: User },
   ] as const;
 
