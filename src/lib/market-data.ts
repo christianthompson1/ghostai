@@ -140,10 +140,5 @@ export type DemoAccountSnapshot = {
 };
 
 export async function fetchDemoAccount(userId: string): Promise<DemoAccountSnapshot | null> {
-  return apiGetAccount(userId);
-}
-
-async function apiGetAccount(userId: string) {
-  const { apiGet } = await import("./api");
   return apiGet<DemoAccountSnapshot>(`/api/demo/account?userId=${encodeURIComponent(userId)}`);
 }
