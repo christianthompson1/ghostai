@@ -1,5 +1,6 @@
-import { Plus, MessageSquare, Sun, Moon, LogOut, Trash2, X, LineChart, ClipboardList, UserRound } from "lucide-react";
+import { Plus, MessageSquare, Sun, Moon, LogOut, Trash2, X, LineChart, ClipboardList, UserRound, Home, Wallet } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { WalletButton } from "@/components/wallet/WalletButton";
 import logo from "@/assets/ghost-ai-logo.asset.json";
 import { useTheme } from "@/hooks/useTheme";
 
