@@ -46,4 +46,8 @@ const routeOptions = {
       },
     },
   },
-});
+};
+
+export const Route = createFileRoute("/sitemap.xml")(
+  routeOptions as Parameters<ReturnType<typeof createFileRoute<"/sitemap.xml">>>[0],
+);
