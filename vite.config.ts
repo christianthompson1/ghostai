@@ -23,7 +23,7 @@ export default defineConfig({
         // condition — point it at its browser ESM build so the worker build resolves.
         {
           find: /^rpc-websockets$/,
-          replacement: "rpc-websockets/dist/index.browser.mjs",
+          replacement: new URL("./node_modules/rpc-websockets/dist/index.browser.mjs", import.meta.url).pathname,
         },
       ],
     },
