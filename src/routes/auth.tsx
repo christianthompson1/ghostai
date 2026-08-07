@@ -11,6 +11,20 @@ export const Route = createFileRoute("/auth")({
     if (data.session) throw redirect({ to: "/" });
   },
   component: AuthPage,
+  head: () => ({
+    meta: [
+      { title: "Sign in to GHOST AI — Solana Intelligence Terminal" },
+      {
+        name: "description",
+        content: "Sign in or create a GHOST AI account to access the conversational Solana audit and market terminal.",
+      },
+      { property: "og:title", content: "Sign in to GHOST AI" },
+      { property: "og:description", content: "Access the conversational Solana audit and market terminal." },
+      { property: "og:url", content: "https://ghostprotocol1.lovable.app/auth" },
+      { property: "og:type", content: "website" },
+    ],
+    links: [{ rel: "canonical", href: "https://ghostprotocol1.lovable.app/auth" }],
+  }),
 });
 
 function AuthPage() {
@@ -68,8 +82,8 @@ function AuthPage() {
       <div className="w-full max-w-md glass p-8 flex flex-col gap-6">
         <div className="flex flex-col items-center gap-3">
           <img src={logo.url} alt="GHOST AI" className="h-16 w-16 rounded-2xl object-cover" />
-          <h1 className="text-2xl font-bold tracking-tight">
-            GHOST <span className="sky-text">AI</span>
+          <h1 className="text-2xl font-bold tracking-tight text-center">
+            GHOST <span className="sky-text">AI</span> — Conversational Solana Intelligence
           </h1>
           <p className="text-sm text-muted-foreground text-center">
             Conversational Solana intelligence.
@@ -90,11 +104,11 @@ function AuthPage() {
         <form onSubmit={onSubmit} className="flex flex-col gap-3">
           <input
             type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@domain.com" autoComplete="email" className="glass-input"
+            placeholder="you@domain.com" autoComplete="email" aria-label="Email address" className="glass-input"
           />
           <input
             type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password" autoComplete={mode === "signup" ? "new-password" : "current-password"}
+            placeholder="Password" aria-label="Password" autoComplete={mode === "signup" ? "new-password" : "current-password"}
             className="glass-input"
           />
 

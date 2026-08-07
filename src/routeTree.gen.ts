@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedDemoRouteImport } from './routes/_authenticated/demo'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
@@ -25,6 +26,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
@@ -61,6 +67,7 @@ const AuthenticatedWalletRoute = AuthenticatedWalletRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/auth': typeof AuthRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/demo': typeof AuthenticatedDemoRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/tasks': typeof AuthenticatedTasksRoute
@@ -69,6 +76,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/demo': typeof AuthenticatedDemoRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/tasks': typeof AuthenticatedTasksRoute
@@ -80,6 +88,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/demo': typeof AuthenticatedDemoRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/tasks': typeof AuthenticatedTasksRoute
@@ -92,17 +101,27 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/sitemap.xml'
     | '/demo'
     | '/profile'
     | '/tasks'
     | '/trade'
     | '/wallet'
   fileRoutesByTo: FileRoutesByTo
-  to: '/auth' | '/demo' | '/profile' | '/tasks' | '/trade' | '/wallet' | '/'
+  to:
+    | '/auth'
+    | '/sitemap.xml'
+    | '/demo'
+    | '/profile'
+    | '/tasks'
+    | '/trade'
+    | '/wallet'
+    | '/'
   id:
     | '__root__'
     | '/_authenticated'
     | '/auth'
+    | '/sitemap.xml'
     | '/_authenticated/demo'
     | '/_authenticated/profile'
     | '/_authenticated/tasks'
@@ -114,6 +133,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -130,6 +150,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/': {
@@ -201,6 +228,7 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
