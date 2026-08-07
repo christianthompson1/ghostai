@@ -25,6 +25,12 @@ export default defineConfig({
           find: /^rpc-websockets$/,
           replacement: new URL("./node_modules/rpc-websockets/dist/index.browser.mjs", import.meta.url).pathname,
         },
+        // @solana/web3.js imports "buffer"; Vite externalizes the Node builtin in the
+        // browser, leaving Buffer undefined at runtime. Use the npm polyfill instead.
+        {
+          find: /^buffer$/,
+          replacement: new URL("./node_modules/buffer/index.js", import.meta.url).pathname,
+        },
       ],
     },
   },
