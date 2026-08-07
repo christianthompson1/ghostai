@@ -9,8 +9,7 @@ interface SitemapEntry {
   priority?: string;
 }
 
-export const Route = createFileRoute("/sitemap.xml")({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const routeOptions = {
   server: {
     handlers: {
       GET: async () => {
