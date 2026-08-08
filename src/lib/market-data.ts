@@ -102,7 +102,7 @@ export async function fetchPumpTrending(): Promise<PumpTrendingRow[]> {
 
 // ── Historical candles ───────────────────────────────────────────────────────
 export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number };
-export type CandleTF = "15m" | "1h" | "1d";
+export type CandleTF = "15m" | "1h" | "4h" | "1d";
 
 export async function fetchCandles(mint: string, timeframe: CandleTF): Promise<Candle[]> {
   const json = await API.getOhlcv(mint, timeframe, 100);
