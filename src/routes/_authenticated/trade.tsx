@@ -1,19 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft, Search, TrendingUp, TrendingDown, Wallet, X, RefreshCw,
-  ChevronDown, LineChart as LineIcon, CandlestickChart, Sigma, Gauge, MessageCircle,
+  ArrowLeft, Search, TrendingUp, TrendingDown, Wallet, X, RefreshCw, CandlestickChart,
 } from "lucide-react";
 import {
   applyTrade, emptyState, fetchMarkets, fetchPricesForMints, loadState, saveState,
   searchMarkets, syncTradeToBackend, START_CASH,
   type MarketRow, type PaperState,
 } from "@/lib/trade-store";
-import type { CandleTF } from "@/lib/market-data";
-import { GlassCandleChart, type ChartStyle } from "@/components/charts/GlassCandleChart";
-import { MarketInfoPanel } from "@/components/trade/MarketInfoPanel";
-import { LiveFeedPanel } from "@/components/trade/LiveFeedPanel";
+import { GlassCandleChart } from "@/components/charts/GlassCandleChart";
 import { NavDock } from "@/components/nav/NavDock";
+
 
 export const Route = createFileRoute("/_authenticated/trade")({
   ssr: false,
@@ -37,17 +34,6 @@ function usd(n: number, digits = 2) {
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: max })}`;
 }
 
-const TFS: { id: CandleTF; label: string }[] = [
-  { id: "15m", label: "15M" },
-  { id: "1h", label: "1H" },
-  { id: "4h", label: "4H" },
-  { id: "1d", label: "1D" },
-];
-
-type TopTab = "trade" | "balance";
-type DataTab = "chart" | "info" | "feed";
-type BottomTab = "positions" | "open" | "orders" | "history";
-
 function TradePage() {
   const [state, setState] = useState<PaperState>(() => emptyState());
   const [hydrated, setHydrated] = useState(false);
@@ -55,7 +41,6 @@ function TradePage() {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [selected, setSelected] = useState<MarketRow | null>(null);
   const [drawer, setDrawer] = useState(false);
-  const [ticket, setTicket] = useState(false);
   const [query, setQuery] = useState("");
   const [searchRows, setSearchRows] = useState<MarketRow[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -63,15 +48,6 @@ function TradePage() {
   const [notice, setNotice] = useState<{ ok: boolean; msg: string } | null>(null);
   const [busy, setBusy] = useState<"buy" | "sell" | null>(null);
 
-  // Exchange shell state
-  const [topTab, setTopTab] = useState<TopTab>("trade");
-  const [dataTab, setDataTab] = useState<DataTab>("chart");
-  const [bottomTab, setBottomTab] = useState<BottomTab>("positions");
-  const [tf, setTf] = useState<CandleTF>("1h");
-  const [chartStyle, setChartStyle] = useState<ChartStyle>("candles");
-  const [indicators, setIndicators] = useState(false);
-  const [sentiment, setSentiment] = useState(false);
-  const [mentions, setMentions] = useState(false);
 
   // ── Restore persisted portfolio ────────────────────────────────────────────
   useEffect(() => {
@@ -168,6 +144,7 @@ function TradePage() {
       amount: +tokens.toFixed(9), priceUsd: livePrice,
     };
     setBusy(action);
+    // Optimistic: portfolio updates instantly, backend mirror is fire-and-forget.
     const res = applyTrade(state, input);
     if (!res.ok) {
       setBusy(null);
@@ -179,6 +156,7 @@ function TradePage() {
     setNotice({ ok: true, msg: `${action === "buy" ? "Bought" : "Sold"} ${input.amount.toFixed(4)} ${selected.symbol}` });
     window.setTimeout(() => setBusy(null), 450);
   }
+
 
   function resetDesk() {
     mutate(emptyState(state.userId));
@@ -192,333 +170,76 @@ function TradePage() {
   }, [notice]);
 
   const list = searchRows ?? markets;
-  const pair = selected ? `${selected.symbol}/USDC` : "Select market";
 
   return (
-    <div className="min-h-screen w-full bg-[var(--background)] px-3 sm:px-6 py-4 sm:py-6 pb-40">
-      <div className="mx-auto max-w-7xl flex flex-col gap-3">
-        {/* ── 1. Exchange header bar ─────────────────────────────────────── */}
-        <header className="glass rounded-2xl px-3 sm:px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+    <div className="min-h-screen w-full bg-[var(--background)] px-3 sm:px-6 py-4 sm:py-6 pb-28">
+      <div className="mx-auto max-w-7xl flex flex-col gap-4">
+        {/* Header */}
+        <header className="glass rounded-2xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
             <Link to="/" className="btn-ghost !px-2" aria-label="Back to terminal">
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <button
-              onClick={() => setDrawer(true)}
-              className="flex items-center gap-2.5 min-w-0 rounded-2xl px-2 py-1 hover:bg-white/30 transition"
-              aria-label="Change market"
-            >
-              {selected?.image ? (
-                <img src={selected.image} alt="" className="h-9 w-9 rounded-full ring-1 ring-white/50" />
-              ) : (
-                <span className="h-9 w-9 rounded-full grid place-items-center bg-white/40 ring-1 ring-white/50 text-xs font-bold">
-                  {selected?.symbol?.slice(0, 2) ?? "—"}
-                </span>
-              )}
-              <span className="min-w-0 text-left">
-                <span className="flex items-center gap-1 font-bold truncate">
-                  {pair} <ChevronDown className="h-4 w-4 opacity-60" />
-                </span>
-                <span className="block text-[10px] uppercase tracking-wider text-muted-foreground truncate">
-                  {selected?.venue ?? "Solana"} · {markets.length || "…"} markets
-                </span>
-              </span>
-            </button>
+            <div className="min-w-0">
+              <h1 className="font-bold text-lg truncate">Paper Trading Desk</h1>
+              <p className="text-xs text-muted-foreground truncate">
+                Persistent positions · live PnL · {markets.length || "…"} live markets
+              </p>
+            </div>
           </div>
-
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-baseline gap-2">
-              <span className="text-2xl sm:text-3xl font-bold tabular-nums">{usd(livePrice, 2)}</span>
-              {selected ? (
-                <span className={`pill ${selected.change24h >= 0 ? "pill-ok" : "pill-danger"}`}>
-                  {selected.change24h >= 0 ? "▲" : "▼"} {Math.abs(selected.change24h).toFixed(2)}%
-                </span>
-              ) : null}
-            </div>
-            <div className="glass-pill !rounded-full p-1 flex items-center gap-1">
-              {(["trade", "balance"] as TopTab[]).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTopTab(t)}
-                  className={`px-4 py-1.5 rounded-full text-sm font-semibold capitalize transition ${
-                    topTab === t ? "bg-[color:var(--sky)]/20 text-[color:var(--sky)]" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-            <button onClick={resetDesk} aria-label="Reset paper desk" className="btn-ghost !px-2" title="Reset paper desk">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setDrawer(true)} className="btn-glass text-sm">
+              <Search className="h-4 w-4" /> Markets
+            </button>
+            <button onClick={resetDesk} aria-label="Reset paper desk" className="btn-ghost text-sm" title="Reset paper desk">
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
         </header>
 
-        {topTab === "trade" ? (
-          <>
-            {/* ── 2. Chart & data tabs ───────────────────────────────────── */}
-            <section className="glass rounded-2xl p-3 sm:p-4 flex flex-col gap-3 min-w-0">
-              <div className="flex items-center gap-1 border-b border-white/30 pb-2 overflow-x-auto">
-                {([["chart", "Chart"], ["info", "Market Info"], ["feed", "Feed"]] as [DataTab, string][]).map(
-                  ([id, label]) => (
-                    <button
-                      key={id}
-                      onClick={() => setDataTab(id)}
-                      className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition whitespace-nowrap ${
-                        dataTab === id
-                          ? "text-[color:var(--sky)] bg-[color:var(--sky)]/12"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ),
-                )}
+        {/* Portfolio stats */}
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard label="Portfolio equity" value={usd(equity)} sub={`${totalPnl >= 0 ? "+" : ""}${totalPnlPct.toFixed(2)}% all-time`} tone={totalPnl >= 0 ? "ok" : "bad"} />
+          <StatCard label="Cash" value={usd(state.cash)} sub="Available to deploy" />
+          <StatCard label="Positions" value={usd(positionsValue)} sub={`${positions.length} open`} />
+          <StatCard
+            label="Unrealized PnL"
+            value={`${unrealized >= 0 ? "+" : "−"}${usd(Math.abs(unrealized))}`}
+            sub={`Realized ${usd(state.realizedPnl)}`}
+            tone={unrealized >= 0 ? "ok" : "bad"}
+          />
+        </section>
+
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-4">
+          {/* Chart */}
+          <section className="glass rounded-2xl p-4 flex flex-col gap-3 min-w-0">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
+                <CandlestickChart className="h-4 w-4 sky-text shrink-0" />
+                <span className="font-semibold truncate">
+                  {selected ? `${selected.symbol} · ${selected.name || "Solana market"}` : "Select a market"}
+                </span>
               </div>
-
-              {dataTab === "chart" ? (
-                <>
-                  {/* Chart toolbar */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="glass-pill !rounded-full p-0.5 flex items-center gap-0.5">
-                      {TFS.map(({ id, label }) => (
-                        <button
-                          key={id}
-                          onClick={() => setTf(id)}
-                          className={`px-2.5 py-1 rounded-full text-xs font-semibold transition ${
-                            tf === id ? "bg-[color:var(--sky)]/20 text-[color:var(--sky)]" : "text-muted-foreground hover:text-foreground"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="glass-pill !rounded-full p-0.5 flex items-center gap-0.5">
-                      <button
-                        onClick={() => setChartStyle("candles")}
-                        aria-label="Candlestick chart"
-                        className={`h-7 w-7 grid place-items-center rounded-full transition ${
-                          chartStyle === "candles" ? "bg-[color:var(--sky)]/20 text-[color:var(--sky)]" : "text-muted-foreground"
-                        }`}
-                      >
-                        <CandlestickChart className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setChartStyle("line")}
-                        aria-label="Line chart"
-                        className={`h-7 w-7 grid place-items-center rounded-full transition ${
-                          chartStyle === "line" ? "bg-[color:var(--sky)]/20 text-[color:var(--sky)]" : "text-muted-foreground"
-                        }`}
-                      >
-                        <LineIcon className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <ToolChip active={indicators} onClick={() => setIndicators((v) => !v)} Icon={Sigma} label="fx" />
-                    <ToolChip active={sentiment} onClick={() => setSentiment((v) => !v)} Icon={Gauge} label="Sentiment" />
-                    <ToolChip active={mentions} onClick={() => setMentions((v) => !v)} Icon={MessageCircle} label="Mentions" />
-                  </div>
-
-                  <GlassCandleChart
-                    mint={selected?.mint ?? null}
-                    symbol={selected?.symbol}
-                    tf={tf}
-                    onTfChange={setTf}
-                    style={chartStyle}
-                    hideToolbar
-                    height={420}
-                  />
-
-                  {indicators || sentiment || mentions ? (
-                    <div className="grid sm:grid-cols-3 gap-2">
-                      {indicators ? <Insight label="Indicators" value="MA · RSI · VOL" sub="Overlay set active" /> : null}
-                      {sentiment ? (
-                        <Insight
-                          label="Sentiment"
-                          value={selected && selected.change24h >= 0 ? "Bullish" : "Bearish"}
-                          sub="Derived from 24h momentum"
-                        />
-                      ) : null}
-                      {mentions ? (
-                        <Insight
-                          label="Mentions"
-                          value={selected ? `${Math.max(1, Math.round((selected.volume24h || 0) / 25_000))}` : "—"}
-                          sub="Social volume proxy (24h)"
-                        />
-                      ) : null}
-                    </div>
-                  ) : null}
-                </>
-              ) : dataTab === "info" ? (
-                <MarketInfoPanel market={selected} livePrice={livePrice} />
-              ) : (
-                <LiveFeedPanel markets={markets} selectedMint={selected?.mint ?? null} />
-              )}
-
-            </section>
-
-            {/* ── 3. Bottom management tabs ──────────────────────────────── */}
-            <section className="glass rounded-2xl p-3 sm:p-4 flex flex-col gap-3 min-w-0">
-              <div className="flex items-center gap-1 border-b border-white/30 pb-2 overflow-x-auto">
-                {(
-                  [
-                    ["positions", "Positions"],
-                    ["open", "Open Orders"],
-                    ["orders", "Order History"],
-                    ["history", "Trade History"],
-                  ] as [BottomTab, string][]
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    onClick={() => setBottomTab(id)}
-                    className={`px-3 py-1.5 text-sm font-semibold rounded-lg transition whitespace-nowrap ${
-                      bottomTab === id
-                        ? "text-[color:var(--sky)] bg-[color:var(--sky)]/12"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {bottomTab === "positions" ? (
-                !hydrated ? (
-                  <div className="shimmer-glass h-16 rounded-xl" />
-                ) : positions.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No open positions yet. Buy a market to start tracking live PnL.</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[640px]">
-                      <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                        <tr className="text-left">
-                          <th className="py-2">Market</th><th>Amount</th><th>Avg cost</th>
-                          <th>Live</th><th>Value</th><th className="text-right pr-1">Unrealized</th>
-                        </tr>
-                      </thead>
-                      <tbody className="tabular-nums">
-                        {positions.map((p) => (
-                          <tr
-                            key={p.mint}
-                            className="border-t border-white/25 cursor-pointer hover:bg-white/25 transition"
-                            onClick={() =>
-                              setSelected(
-                                markets.find((m) => m.mint === p.mint) ?? {
-                                  mint: p.mint, symbol: p.symbol, name: p.symbol,
-                                  priceUsd: p.live, change24h: 0, volume24h: 0, liquidityUsd: 0, venue: "DEX",
-                                },
-                              )
-                            }
-                          >
-                            <td className="py-2.5 font-semibold">{p.symbol}</td>
-                            <td>{p.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
-                            <td>{usd(p.avgCost, 2)}</td>
-                            <td>{usd(p.live, 2)}</td>
-                            <td>{usd(p.value)}</td>
-                            <td className={`text-right pr-1 font-semibold ${p.pnl >= 0 ? "text-[oklch(0.55_0.18_150)]" : "text-[color:var(--destructive)]"}`}>
-                              {p.pnl >= 0 ? "+" : "−"}{usd(Math.abs(p.pnl))} ({p.pnlPct.toFixed(2)}%)
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              ) : bottomTab === "open" ? (
-                <p className="text-sm text-muted-foreground">
-                  No open orders. Paper trades execute instantly at the live market price.
-                </p>
-              ) : (
-                <>
-                  {state.trades.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {bottomTab === "orders"
-                        ? "Filled orders appear here once you trade."
-                        : "Executed paper trades appear here and persist across refreshes."}
-                    </p>
-                  ) : (
-                    <ul className="flex flex-col gap-1.5 max-h-72 overflow-y-auto">
-                      {state.trades.map((t) => (
-                        <li key={t.id} className="glass-pill !rounded-xl px-3 py-2 flex items-center justify-between gap-3 text-sm">
-                          <span className="flex items-center gap-2 min-w-0">
-                            <span className={`pill ${t.action === "buy" ? "pill-ok" : "pill-danger"}`}>{t.action.toUpperCase()}</span>
-                            <span className="font-semibold truncate">{t.symbol}</span>
-                          </span>
-                          <span className="tabular-nums text-xs text-muted-foreground truncate">
-                            {t.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })} @ {usd(t.priceUsd, 2)} · {usd(t.totalUsd)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-            </section>
-          </>
-        ) : (
-          /* ── Balance tab ─────────────────────────────────────────────── */
-          <section className="flex flex-col gap-3">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <StatCard label="Portfolio equity" value={usd(equity)} sub={`${totalPnl >= 0 ? "+" : ""}${totalPnlPct.toFixed(2)}% all-time`} tone={totalPnl >= 0 ? "ok" : "bad"} />
-              <StatCard label="Cash" value={usd(state.cash)} sub="Available to deploy" />
-              <StatCard label="Positions" value={usd(positionsValue)} sub={`${positions.length} open`} />
-              <StatCard
-                label="Unrealized PnL"
-                value={`${unrealized >= 0 ? "+" : "−"}${usd(Math.abs(unrealized))}`}
-                sub={`Realized ${usd(state.realizedPnl)}`}
-                tone={unrealized >= 0 ? "ok" : "bad"}
-              />
+              {selected ? (
+                <div className="flex items-center gap-2">
+                  <span className="font-bold tabular-nums">{usd(livePrice, 2)}</span>
+                  <span className={`pill ${selected.change24h >= 0 ? "pill-ok" : "pill-danger"}`}>
+                    {selected.change24h >= 0 ? "▲" : "▼"} {Math.abs(selected.change24h).toFixed(2)}%
+                  </span>
+                </div>
+              ) : null}
             </div>
-            <div className="glass rounded-2xl p-4 flex flex-col gap-2">
-              <h2 className="font-semibold">Holdings</h2>
-              {positions.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Your paper balance is fully in cash.</p>
-              ) : (
-                <ul className="flex flex-col gap-1.5">
-                  {positions.map((p) => (
-                    <li key={p.mint} className="glass-pill !rounded-xl px-3 py-2 flex items-center justify-between gap-3 text-sm">
-                      <span className="font-semibold">{p.symbol}</span>
-                      <span className="tabular-nums text-xs text-muted-foreground">
-                        {p.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })} · {usd(p.value)}
-                      </span>
-                      <span className={`pill ${p.pnl >= 0 ? "pill-ok" : "pill-danger"}`}>{p.pnlPct.toFixed(2)}%</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <GlassCandleChart mint={selected?.mint ?? null} symbol={selected?.symbol} />
+
           </section>
-        )}
-      </div>
 
-      {/* ── Pinned CTA above the nav dock ─────────────────────────────────── */}
-      <div className="fixed bottom-20 left-0 right-0 z-30 px-3 sm:px-6 pointer-events-none">
-        <div className="mx-auto max-w-7xl pointer-events-auto">
-          <button
-            onClick={() => setTicket(true)}
-            className="btn-primary w-full justify-center py-3 text-base font-semibold shadow-lg"
-          >
-            <Wallet className="h-4 w-4" />
-            {selected ? `Buy / Sell ${selected.symbol}` : "Start Trading"}
-          </button>
-        </div>
-      </div>
-
-      {notice ? (
-        <div className="fixed bottom-36 left-1/2 -translate-x-1/2 z-50">
-          <div className={`pill ${notice.ok ? "pill-ok" : "pill-danger"} px-4 py-2`}>{notice.msg}</div>
-        </div>
-      ) : null}
-
-      {/* ── Trade ticket sheet ────────────────────────────────────────────── */}
-      {ticket ? (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center">
-          <button className="absolute inset-0 bg-black/20 backdrop-blur-md" aria-label="Close ticket" onClick={() => setTicket(false)} />
-          <section className="relative w-full sm:max-w-md glass-strong rounded-t-3xl sm:rounded-3xl p-4 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
+          {/* Ticket */}
+          <section className="glass rounded-2xl p-4 flex flex-col gap-3 h-fit">
+            <div className="flex items-center gap-2">
+              <Wallet className="h-4 w-4 sky-text" />
               <span className="font-semibold">Trade ticket</span>
-              <button onClick={() => setTicket(false)} className="btn-ghost !px-2"><X className="h-4 w-4" /></button>
             </div>
-            <button onClick={() => { setTicket(false); setDrawer(true); }} className="glass-input w-full text-left text-sm flex items-center justify-between">
+            <button onClick={() => setDrawer(true)} className="glass-input w-full text-left text-sm flex items-center justify-between">
               <span className="truncate">{selected ? `${selected.symbol} — ${selected.venue}` : "Choose a market"}</span>
               <Search className="h-4 w-4 opacity-60" />
             </button>
@@ -548,12 +269,84 @@ function TradePage() {
               <button onClick={() => trade("sell")} disabled={!selected || !!busy} className="btn-glass justify-center disabled:opacity-50">
                 {busy === "sell" ? <span className="spinner" /> : <TrendingDown className="h-4 w-4" />} Sell
               </button>
+
             </div>
+            {notice ? (
+              <div className={`pill ${notice.ok ? "pill-ok" : "pill-danger"} w-full justify-center`}>{notice.msg}</div>
+            ) : null}
           </section>
         </div>
-      ) : null}
 
-      {/* ── Market search drawer ──────────────────────────────────────────── */}
+        {/* Open positions */}
+        <section className="glass rounded-2xl p-4 flex flex-col gap-3 min-w-0">
+          <h2 className="font-semibold">Open positions</h2>
+          {!hydrated ? (
+            <div className="shimmer-glass h-16 rounded-xl" />
+          ) : positions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No open positions yet. Buy a market to start tracking live PnL.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[640px]">
+                <thead className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <tr className="text-left">
+                    <th className="py-2">Market</th><th>Amount</th><th>Avg cost</th>
+                    <th>Live</th><th>Value</th><th className="text-right pr-1">Unrealized</th>
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {positions.map((p) => (
+                    <tr
+                      key={p.mint}
+                      className="border-t border-white/25 cursor-pointer hover:bg-white/25 transition"
+                      onClick={() =>
+                        setSelected(
+                          markets.find((m) => m.mint === p.mint) ?? {
+                            mint: p.mint, symbol: p.symbol, name: p.symbol,
+                            priceUsd: p.live, change24h: 0, volume24h: 0, liquidityUsd: 0, venue: "DEX",
+                          },
+                        )
+                      }
+                    >
+                      <td className="py-2.5 font-semibold">{p.symbol}</td>
+                      <td>{p.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+                      <td>{usd(p.avgCost, 2)}</td>
+                      <td>{usd(p.live, 2)}</td>
+                      <td>{usd(p.value)}</td>
+                      <td className={`text-right pr-1 font-semibold ${p.pnl >= 0 ? "text-[oklch(0.55_0.18_150)]" : "text-[color:var(--destructive)]"}`}>
+                        {p.pnl >= 0 ? "+" : "−"}{usd(Math.abs(p.pnl))} ({p.pnlPct.toFixed(2)}%)
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {/* History */}
+        <section className="glass rounded-2xl p-4 flex flex-col gap-2 min-w-0">
+          <h2 className="font-semibold">Trade history</h2>
+          {state.trades.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Executed paper trades appear here and persist across refreshes.</p>
+          ) : (
+            <ul className="flex flex-col gap-1.5 max-h-72 overflow-y-auto">
+              {state.trades.map((t) => (
+                <li key={t.id} className="glass-pill !rounded-xl px-3 py-2 flex items-center justify-between gap-3 text-sm">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className={`pill ${t.action === "buy" ? "pill-ok" : "pill-danger"}`}>{t.action.toUpperCase()}</span>
+                    <span className="font-semibold truncate">{t.symbol}</span>
+                  </span>
+                  <span className="tabular-nums text-xs text-muted-foreground truncate">
+                    {t.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })} @ {usd(t.priceUsd, 2)} · {usd(t.totalUsd)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      {/* Market search drawer */}
       {drawer ? (
         <div className="fixed inset-0 z-50 flex">
           <button className="flex-1 bg-black/20 backdrop-blur-md" aria-label="Close markets" onClick={() => setDrawer(false)} />
@@ -600,29 +393,7 @@ function TradePage() {
 
       <NavDock />
     </div>
-  );
-}
 
-function ToolChip({
-  active, onClick, Icon, label,
-}: { active: boolean; onClick: () => void; Icon: any; label: string }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`pill ${active ? "pill-sky" : ""} px-3 py-1 gap-1.5 active:scale-95 transition`}
-    >
-      <Icon className="h-3.5 w-3.5" /> {label}
-    </button>
-  );
-}
-
-function Insight({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return (
-    <div className="glass-pill !rounded-xl px-3 py-2 flex flex-col">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
-      <span className="font-semibold">{value}</span>
-      <span className="text-[11px] text-muted-foreground truncate">{sub}</span>
-    </div>
   );
 }
 

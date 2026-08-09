@@ -555,7 +555,7 @@ function ChartPanel({
   const first = series[0]?.price ?? last;
   const tickPct = first > 0 ? ((last - first) / first) * 100 : 0;
   const stroke = tickPct >= 0 ? "oklch(0.72 0.2 232)" : "oklch(0.65 0.22 15)";
-  const tfLabel: Record<CandleTF, string> = { "15m": "6h", "1h": "24h", "4h": "7d", "1d": "30d" };
+  const tfLabel: Record<CandleTF, string> = { "15m": "6h", "1h": "24h", "1d": "30d" };
 
   return (
     <div className="glass p-4 flex flex-col gap-3 backdrop-blur-md min-h-[380px]">
