@@ -20,15 +20,7 @@ export const Route = createFileRoute("/_authenticated/demo")({
     meta: [
       { title: "Demo Paper Trading — Ghost AI" },
       { name: "description", content: "Trade a live directory of Solana tokens with a $1,000 mock portfolio." },
-      { property: "og:title", content: "Demo Paper Trading — GHOST AI" },
-      {
-        property: "og:description",
-        content: "Practice Solana trading risk-free with a $1,000 mock portfolio and live market prices.",
-      },
-      { property: "og:url", content: "https://ghostprotocol1.lovable.app/demo" },
-      { property: "og:type", content: "website" },
     ],
-    links: [{ rel: "canonical", href: "https://ghostprotocol1.lovable.app/demo" }],
   }),
 });
 

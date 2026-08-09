@@ -119,7 +119,6 @@ function TasksPage() {
             Min payout
             <input
               type="range" min={0} max={50} step={1} value={minPayout}
-              aria-label="Minimum payout filter in USD"
               onChange={(e) => setMinPayout(Number(e.target.value))}
               className="accent-[color:var(--sky)] w-32"
             />
@@ -237,7 +236,6 @@ function TaskDetail({ task, workerAddress }: { task: Task; workerAddress: string
             value={proof}
             onChange={(e) => setProof(e.target.value)}
             placeholder={task.proofType === "github_pr" ? "https://github.com/org/repo/pull/123" : "https://…"}
-            aria-label="Proof URL"
             className="glass-input w-full px-3 py-2.5 text-sm rounded-xl"
           />
         ) : (
@@ -246,7 +244,6 @@ function TaskDetail({ task, workerAddress }: { task: Task; workerAddress: string
             onChange={(e) => setProof(e.target.value)}
             rows={5}
             placeholder="Paste your completed work here…"
-            aria-label="Proof of completed work"
             className="glass-input w-full px-3 py-2.5 text-sm rounded-xl resize-y"
           />
         )}

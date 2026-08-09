@@ -191,7 +191,7 @@ function TradePage() {
             <button onClick={() => setDrawer(true)} className="btn-glass text-sm">
               <Search className="h-4 w-4" /> Markets
             </button>
-            <button onClick={resetDesk} aria-label="Reset paper desk" className="btn-ghost text-sm" title="Reset paper desk">
+            <button onClick={resetDesk} className="btn-ghost text-sm" title="Reset paper desk">
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
@@ -248,7 +248,6 @@ function TradePage() {
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ""))}
               inputMode="decimal"
-              aria-label="Trade amount in USD"
               className="glass-input w-full tabular-nums"
               placeholder="100"
             />
@@ -279,7 +278,7 @@ function TradePage() {
 
         {/* Open positions */}
         <section className="glass rounded-2xl p-4 flex flex-col gap-3 min-w-0">
-          <h2 className="font-semibold">Open positions</h2>
+          <span className="font-semibold">Open positions</span>
           {!hydrated ? (
             <div className="shimmer-glass h-16 rounded-xl" />
           ) : positions.length === 0 ? (
@@ -325,7 +324,7 @@ function TradePage() {
 
         {/* History */}
         <section className="glass rounded-2xl p-4 flex flex-col gap-2 min-w-0">
-          <h2 className="font-semibold">Trade history</h2>
+          <span className="font-semibold">Trade history</span>
           {state.trades.length === 0 ? (
             <p className="text-sm text-muted-foreground">Executed paper trades appear here and persist across refreshes.</p>
           ) : (
@@ -357,7 +356,7 @@ function TradePage() {
             </div>
             <input
               autoFocus value={query} onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search 100+ CEX & DEX markets…" aria-label="Search markets" className="glass-input w-full"
+              placeholder="Search 100+ CEX & DEX markets…" className="glass-input w-full"
             />
             {searching ? <div className="shimmer-glass h-10 rounded-xl" /> : null}
             <ul className="flex-1 overflow-y-auto flex flex-col gap-1.5">

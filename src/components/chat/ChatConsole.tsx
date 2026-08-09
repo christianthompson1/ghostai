@@ -91,7 +91,6 @@ export function ChatConsole() {
         ) : null}
 
         <main className="flex-1 flex flex-col min-w-0 glass rounded-2xl overflow-hidden relative">
-          <h1 className="sr-only">GHOST AI conversational Solana terminal</h1>
           <header className="lg:hidden flex items-center justify-between gap-2 p-3 border-b border-white/20">
             <div className="flex items-center gap-2">
               <button onClick={() => setSidebarOpen(true)} className="btn-ghost active:scale-95" aria-label="Open menu">

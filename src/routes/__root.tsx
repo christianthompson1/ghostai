@@ -78,13 +78,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: "GHOST AI — Solana Intelligence & Security" },
+      { title: "GHOST AI" },
       { name: "description", content: "GHOST AI — Solana security auditor, transaction decoder, and live market pulse." },
       { name: "theme-color", content: "#38bdf8" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "default" },
       { name: "apple-mobile-web-app-title", content: "GHOST AI" },
-      { property: "og:title", content: "GHOST AI — Solana Intelligence & Security" },
+      { property: "og:title", content: "GHOST AI" },
       { property: "og:description", content: "Audit contracts, decode transactions, scan tokens." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -94,27 +94,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "icon", href: "/icon-512.png", type: "image/png" },
       { rel: "apple-touch-icon", href: "/icon-512.png" },
-    ],
-    scripts: [
-      {
-        type: "application/ld+json",
-        children: JSON.stringify({
-          "@context": "https://schema.org",
-          "@graph": [
-            {
-              "@type": "WebSite",
-              name: "GHOST AI",
-              url: "https://ghostprotocol1.lovable.app",
-            },
-            {
-              "@type": "Organization",
-              name: "GHOST AI",
-              url: "https://ghostprotocol1.lovable.app",
-              logo: "https://ghostprotocol1.lovable.app/icon-512.png",
-            },
-          ],
-        }),
-      },
     ],
   }),
   shellComponent: RootShell,
