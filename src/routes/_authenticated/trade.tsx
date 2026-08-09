@@ -11,6 +11,8 @@ import {
 } from "@/lib/trade-store";
 import type { CandleTF } from "@/lib/market-data";
 import { GlassCandleChart, type ChartStyle } from "@/components/charts/GlassCandleChart";
+import { MarketInfoPanel } from "@/components/trade/MarketInfoPanel";
+import { LiveFeedPanel } from "@/components/trade/LiveFeedPanel";
 import { NavDock } from "@/components/nav/NavDock";
 
 export const Route = createFileRoute("/_authenticated/trade")({
@@ -347,39 +349,11 @@ function TradePage() {
                   ) : null}
                 </>
               ) : dataTab === "info" ? (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  <StatCard label="Last price" value={usd(livePrice, 2)} />
-                  <StatCard
-                    label="24h change"
-                    value={`${(selected?.change24h ?? 0) >= 0 ? "+" : ""}${(selected?.change24h ?? 0).toFixed(2)}%`}
-                    tone={(selected?.change24h ?? 0) >= 0 ? "ok" : "bad"}
-                  />
-                  <StatCard label="24h volume" value={usd(selected?.volume24h ?? 0, 0)} />
-                  <StatCard label="Liquidity" value={usd(selected?.liquidityUsd ?? 0, 0)} />
-                  <div className="glass rounded-2xl p-4 col-span-2 lg:col-span-4 flex flex-col gap-1 min-w-0">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Mint address</span>
-                    <span className="text-xs break-all">{selected?.mint ?? "—"}</span>
-                    <span className="text-[11px] text-muted-foreground">Venue · {selected?.venue ?? "—"}</span>
-                  </div>
-                </div>
+                <MarketInfoPanel market={selected} livePrice={livePrice} />
               ) : (
-                <ul className="flex flex-col gap-2">
-                  {markets.slice(0, 12).map((m) => (
-                    <li key={m.mint} className="glass-pill !rounded-xl px-3 py-2 flex items-center justify-between gap-3 text-sm">
-                      <span className="font-semibold truncate">{m.symbol}</span>
-                      <span className="text-xs text-muted-foreground truncate">
-                        {m.change24h >= 0 ? "rallying" : "cooling"} · {usd(m.priceUsd, 2)} · vol {usd(m.volume24h, 0)}
-                      </span>
-                      <span className={`pill ${m.change24h >= 0 ? "pill-ok" : "pill-danger"} shrink-0`}>
-                        {m.change24h >= 0 ? "▲" : "▼"} {Math.abs(m.change24h).toFixed(2)}%
-                      </span>
-                    </li>
-                  ))}
-                  {markets.length === 0 ? (
-                    <li className="text-sm text-muted-foreground">Streaming market feed…</li>
-                  ) : null}
-                </ul>
+                <LiveFeedPanel markets={markets} selectedMint={selected?.mint ?? null} />
               )}
+
             </section>
 
             {/* ── 3. Bottom management tabs ──────────────────────────────── */}
