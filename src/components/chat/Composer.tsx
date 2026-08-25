@@ -1,7 +1,7 @@
-import { ArrowUp, Mic, X, Volume2, VolumeX } from "lucide-react";
-import { useRef, useEffect, useState, useCallback, memo } from "react";
+import { ArrowUp, Mic, MicOff } from "lucide-react";
+import { useRef, useEffect, useState, useCallback } from "react";
 
-function ComposerBase({
+export function Composer({
   value, onChange, onSend, disabled,
 }: {
   value: string;
@@ -14,11 +14,6 @@ function ComposerBase({
   const baseRef = useRef<string>("");
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(true);
-  const [voiceOpen, setVoiceOpen] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [levels, setLevels] = useState<number[]>(() => Array(28).fill(0.12));
-
-  const audioRef = useRef<{ ctx: AudioContext; stream: MediaStream; raf: number } | null>(null);
 
   useEffect(() => { ref.current?.focus(); }, []);
 
@@ -44,52 +39,13 @@ function ComposerBase({
 
   useEffect(() => {
     const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) setSupported(false);
-  }, []);
-
-  // ── Live waveform from the microphone ──────────────────────────────────────
-  const stopMeter = useCallback(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    cancelAnimationFrame(a.raf);
-    a.stream.getTracks().forEach((t) => t.stop());
-    void a.ctx.close().catch(() => {});
-    audioRef.current = null;
-    setLevels(Array(28).fill(0.12));
-  }, []);
-
-  const startMeter = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const src = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 128;
-      src.connect(analyser);
-      const buf = new Uint8Array(analyser.frequencyBinCount);
-      const tick = () => {
-        analyser.getByteFrequencyData(buf);
-        const bars: number[] = [];
-        const step = Math.floor(buf.length / 28) || 1;
-        for (let i = 0; i < 28; i++) {
-          const v = buf[i * step] / 255;
-          bars.push(Math.max(0.12, Math.min(1, v * 1.6)));
-        }
-        setLevels(bars);
-        const a = audioRef.current;
-        if (a) a.raf = requestAnimationFrame(tick);
-      };
-      audioRef.current = { ctx, stream, raf: requestAnimationFrame(tick) };
-    } catch {
-      /* mic denied — waveform stays idle, transcription still attempts */
-    }
+    if (!SR) { setSupported(false); return; }
   }, []);
 
   const stopListening = useCallback(() => {
     try { recognitionRef.current?.stop(); } catch {}
     setListening(false);
-    stopMeter();
-  }, [stopMeter]);
+  }, []);
 
   const startListening = useCallback(() => {
     const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -111,59 +67,26 @@ function ComposerBase({
         if (finalTxt) baseRef.current += finalTxt + " ";
         onChange((baseRef.current + interim).replace(/\s+/g, " ").trimStart());
       };
-      rec.onerror = () => { setListening(false); stopMeter(); };
-      rec.onend = () => { setListening(false); stopMeter(); };
+      rec.onerror = () => setListening(false);
+      rec.onend = () => setListening(false);
       recognitionRef.current = rec;
       rec.start();
       setListening(true);
-      void startMeter();
+      requestAnimationFrame(() => ref.current?.focus());
     } catch {
       setListening(false);
     }
-  }, [onChange, value, startMeter, stopMeter]);
+  }, [onChange, value]);
 
-  useEffect(() => () => { try { recognitionRef.current?.abort(); } catch {} stopMeter(); }, [stopMeter]);
-
-  // ── Voice-to-voice: speak assistant replies while the modal is open ────────
-  useEffect(() => {
-    if (!voiceOpen || muted) return;
-    function onReply(e: Event) {
-      const text = (e as CustomEvent<string>).detail;
-      if (!text || typeof window.speechSynthesis === "undefined") return;
-      const u = new SpeechSynthesisUtterance(text.slice(0, 600));
-      u.lang = navigator.language || "en-US";
-      u.rate = 1.02;
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(u);
-    }
-    window.addEventListener("ghost:assistant-reply", onReply);
-    return () => {
-      window.removeEventListener("ghost:assistant-reply", onReply);
-      try { window.speechSynthesis?.cancel(); } catch {}
-    };
-  }, [voiceOpen, muted]);
-
-  function openVoice() {
-    setVoiceOpen(true);
-    if (!listening) startListening();
-  }
-  function closeVoice() {
-    stopListening();
-    try { window.speechSynthesis?.cancel(); } catch {}
-    setVoiceOpen(false);
-    requestAnimationFrame(() => ref.current?.focus());
-  }
-
-  function submit() {
-    if (disabled || !value.trim()) return;
-    if (listening) stopListening();
-    onSend();
-  }
+  useEffect(() => () => { try { recognitionRef.current?.abort(); } catch {} }, []);
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submit();
+      if (!disabled && value.trim()) {
+        if (listening) stopListening();
+        onSend();
+      }
     }
   }
 
@@ -182,16 +105,16 @@ function ComposerBase({
           />
           <button
             type="button"
-            onClick={openVoice}
+            onClick={listening ? stopListening : startListening}
             disabled={!supported}
-            title={supported ? "Voice conversation" : "Voice input not supported in this browser"}
-            aria-label="Open voice conversation"
+            title={supported ? (listening ? "Stop listening" : "Voice input") : "Voice input not supported in this browser"}
+            aria-label={listening ? "Stop voice input" : "Start voice input"}
             className={`btn-ghost !p-2.5 !rounded-xl shrink-0 active:scale-95 relative ${listening ? "mic-listening text-cyan-400" : ""}`}
           >
-            <Mic className="h-4 w-4 relative z-10" />
+            {listening ? <MicOff className="h-4 w-4 relative z-10" /> : <Mic className="h-4 w-4" />}
           </button>
           <button
-            onClick={submit}
+            onClick={() => { if (listening) stopListening(); onSend(); }}
             disabled={disabled || !value.trim()}
             className="btn-primary !p-2.5 !rounded-xl shrink-0 active:scale-95"
             aria-label="Send"
@@ -203,57 +126,6 @@ function ComposerBase({
           GHOST AI may produce inaccurate information. Always verify on-chain data.
         </div>
       </div>
-
-      {voiceOpen ? (
-        <div className="fixed inset-0 z-[80] grid place-items-center p-4 animate-fade-in">
-          <button className="absolute inset-0 bg-black/35 backdrop-blur-md" aria-label="Close voice mode" onClick={closeVoice} />
-          <div className="relative glass-strong rounded-3xl p-6 w-full max-w-md flex flex-col items-center gap-5">
-            <div className="w-full flex items-center justify-between">
-              <span className="font-semibold">Voice conversation</span>
-              <div className="flex items-center gap-1">
-                <button onClick={() => setMuted((m) => !m)} className="btn-ghost !px-2" aria-label={muted ? "Unmute replies" : "Mute replies"}>
-                  {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                </button>
-                <button onClick={closeVoice} className="btn-ghost !px-2" aria-label="Close"><X className="h-4 w-4" /></button>
-              </div>
-            </div>
-
-            <div className="voice-orb grid place-items-center h-40 w-40 rounded-full">
-              <div className="flex items-end gap-[3px] h-16">
-                {levels.map((l, i) => (
-                  <span
-                    key={i}
-                    className="w-[3px] rounded-full bg-[color:var(--sky)]"
-                    style={{ height: `${Math.round(l * 100)}%`, opacity: 0.45 + l * 0.55 }}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <p className="text-sm text-center text-muted-foreground min-h-[2.5rem] break-words">
-              {value || (listening ? "Listening…" : "Tap the mic to start speaking")}
-            </p>
-
-            <div className="flex items-center gap-2 w-full">
-              <button
-                onClick={listening ? stopListening : startListening}
-                className={`btn-glass flex-1 justify-center ${listening ? "text-cyan-500" : ""}`}
-              >
-                <Mic className="h-4 w-4" /> {listening ? "Stop" : "Speak"}
-              </button>
-              <button
-                onClick={() => { submit(); }}
-                disabled={disabled || !value.trim()}
-                className="btn-primary flex-1 justify-center disabled:opacity-50"
-              >
-                <ArrowUp className="h-4 w-4" /> Send
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
-
-export const Composer = memo(ComposerBase);

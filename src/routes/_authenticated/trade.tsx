@@ -8,9 +8,6 @@ import {
   searchMarkets, syncTradeToBackend, START_CASH,
   type MarketRow, type PaperState,
 } from "@/lib/trade-store";
-import { GlassCandleChart } from "@/components/charts/GlassCandleChart";
-import { NavDock } from "@/components/nav/NavDock";
-
 
 export const Route = createFileRoute("/_authenticated/trade")({
   ssr: false,
@@ -46,8 +43,6 @@ function TradePage() {
   const [searching, setSearching] = useState(false);
   const [amount, setAmount] = useState("50");
   const [notice, setNotice] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [busy, setBusy] = useState<"buy" | "sell" | null>(null);
-
 
   // ── Restore persisted portfolio ────────────────────────────────────────────
   useEffect(() => {
@@ -132,7 +127,7 @@ function TradePage() {
   const est = Number(amount) / (livePrice || 1);
 
   function trade(action: "buy" | "sell") {
-    if (!selected || busy) return;
+    if (!selected) return;
     const usdAmount = Number(amount);
     if (!Number.isFinite(usdAmount) || usdAmount <= 0) {
       setNotice({ ok: false, msg: "Enter a valid USD amount" });
@@ -143,20 +138,12 @@ function TradePage() {
       action, mint: selected.mint, symbol: selected.symbol,
       amount: +tokens.toFixed(9), priceUsd: livePrice,
     };
-    setBusy(action);
-    // Optimistic: portfolio updates instantly, backend mirror is fire-and-forget.
     const res = applyTrade(state, input);
-    if (!res.ok) {
-      setBusy(null);
-      setNotice({ ok: false, msg: res.error ?? "Trade rejected" });
-      return;
-    }
+    if (!res.ok) { setNotice({ ok: false, msg: res.error ?? "Trade rejected" }); return; }
     mutate(res.state);
     syncTradeToBackend(res.state, input);
     setNotice({ ok: true, msg: `${action === "buy" ? "Bought" : "Sold"} ${input.amount.toFixed(4)} ${selected.symbol}` });
-    window.setTimeout(() => setBusy(null), 450);
   }
-
 
   function resetDesk() {
     mutate(emptyState(state.userId));
@@ -172,7 +159,7 @@ function TradePage() {
   const list = searchRows ?? markets;
 
   return (
-    <div className="min-h-screen w-full bg-[var(--background)] px-3 sm:px-6 py-4 sm:py-6 pb-28">
+    <div className="min-h-screen w-full bg-[var(--background)] px-3 sm:px-6 py-4 sm:py-6">
       <div className="mx-auto max-w-7xl flex flex-col gap-4">
         {/* Header */}
         <header className="glass rounded-2xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
@@ -229,8 +216,21 @@ function TradePage() {
                 </div>
               ) : null}
             </div>
-            <GlassCandleChart mint={selected?.mint ?? null} symbol={selected?.symbol} />
-
+            <div className="rounded-xl overflow-hidden border border-white/30 bg-white/20 h-[420px]">
+              {selected ? (
+                <iframe
+                  key={selected.mint}
+                  title={`${selected.symbol} candlestick chart`}
+                  src={`https://dexscreener.com/solana/${selected.mint}?embed=1&theme=light&trades=0&info=0`}
+                  className="w-full h-full border-0"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="h-full grid place-items-center">
+                  <div className="shimmer-glass h-24 w-3/4 rounded-xl" />
+                </div>
+              )}
+            </div>
           </section>
 
           {/* Ticket */}
@@ -262,13 +262,12 @@ function TradePage() {
               ≈ {Number.isFinite(est) ? est.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "—"} {selected?.symbol ?? ""} @ {usd(livePrice, 2)}
             </p>
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => trade("buy")} disabled={!selected || !!busy} className="btn-primary justify-center disabled:opacity-50">
-                {busy === "buy" ? <span className="spinner" /> : <TrendingUp className="h-4 w-4" />} Buy
+              <button onClick={() => trade("buy")} disabled={!selected} className="btn-primary justify-center disabled:opacity-50">
+                <TrendingUp className="h-4 w-4" /> Buy
               </button>
-              <button onClick={() => trade("sell")} disabled={!selected || !!busy} className="btn-glass justify-center disabled:opacity-50">
-                {busy === "sell" ? <span className="spinner" /> : <TrendingDown className="h-4 w-4" />} Sell
+              <button onClick={() => trade("sell")} disabled={!selected} className="btn-glass justify-center disabled:opacity-50">
+                <TrendingDown className="h-4 w-4" /> Sell
               </button>
-
             </div>
             {notice ? (
               <div className={`pill ${notice.ok ? "pill-ok" : "pill-danger"} w-full justify-center`}>{notice.msg}</div>
@@ -389,10 +388,7 @@ function TradePage() {
           </aside>
         </div>
       ) : null}
-
-      <NavDock />
     </div>
-
   );
 }
 

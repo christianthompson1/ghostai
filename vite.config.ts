@@ -17,15 +17,5 @@ export default defineConfig({
       host: "0.0.0.0",
       port: 5000,
     },
-    resolve: {
-      alias: [
-        // rpc-websockets (via @solana/web3.js) has no "workerd"/"import" export
-        // condition — point it at its browser ESM build so the worker build resolves.
-        {
-          find: /^rpc-websockets$/,
-          replacement: new URL("./node_modules/rpc-websockets/dist/index.browser.mjs", import.meta.url).pathname,
-        },
-      ],
-    },
   },
 });

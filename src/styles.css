@@ -346,25 +346,3 @@
   70%  { box-shadow: 0 0 0 10px rgba(34,211,238,0),   0 0 18px rgba(34,211,238,0.55); }
   100% { box-shadow: 0 0 0 0 rgba(34,211,238,0),      0 0 12px rgba(34,211,238,0.4); }
 }
-
-/* Voice conversation orb + waveform */
-.voice-orb {
-  background:
-    radial-gradient(60% 60% at 50% 35%, color-mix(in oklab, var(--sky) 28%, transparent), transparent 70%),
-    var(--glass-bg);
-  backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid color-mix(in oklab, var(--sky) 30%, transparent);
-  box-shadow: 0 0 40px -6px color-mix(in oklab, var(--sky) 45%, transparent), var(--glass-shadow);
-  animation: voice-breathe 3.2s ease-in-out infinite;
-}
-@keyframes voice-breathe {
-  0%, 100% { transform: scale(1); }
-  50%      { transform: scale(1.035); }
-}
-
-/* Chat typography: wrap long prose naturally, only break unbroken hashes */
-.chat-text {
-  overflow-wrap: break-word;
-  word-break: normal;
-  hyphens: auto;
-}

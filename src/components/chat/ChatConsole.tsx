@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Menu, Rocket } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,17 +23,6 @@ export function ChatConsole() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
 
-  // Broadcast the newest assistant reply so voice mode can read it aloud.
-  const lastSpokenRef = useRef<string | null>(null);
-  useEffect(() => {
-    const last = chat.messages[chat.messages.length - 1];
-    if (!last || last.role !== "assistant" || last.id === lastSpokenRef.current) return;
-    const text = last.parts.find((p: any) => p.type === "text")?.text;
-    lastSpokenRef.current = last.id;
-    if (text) window.dispatchEvent(new CustomEvent("ghost:assistant-reply", { detail: text }));
-  }, [chat.messages]);
-
-
   async function signOut() {
     await supabase.auth.signOut();
     navigate({ to: "/auth", replace: true });
@@ -44,15 +33,12 @@ export function ChatConsole() {
     setSidebarOpen(false);
   }
 
-  const send = chat.send;
-  const handleSend = useCallback(() => {
-    setInput((v) => {
-      const trimmed = v.trim();
-      if (trimmed) send(trimmed);
-      return trimmed ? "" : v;
-    });
-  }, [send]);
-
+  function handleSend() {
+    const v = input.trim();
+    if (!v) return;
+    setInput("");
+    chat.send(v);
+  }
 
   function handlePickPumpToken(t: { mint: string; symbol: string }) {
     chat.sendCommand(

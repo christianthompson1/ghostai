@@ -1,21 +1,31 @@
 /**
- * Ghost AI external backend (Replit / local engine) + public helpers.
+ * Ghost AI external backend (Replit) + public market data helpers.
  * All requests are wrapped in try/catch and return null (or throw a friendly
  * message) instead of crashing the UI. The chart & audit widgets show a
  * glass shimmer while these promises resolve.
  */
-import { API, BACKEND_URL } from "./api";
+import { BACKEND_URL } from "./api";
 
 /** Absolute backend engine origin (from `VITE_BACKEND_URL`). */
 export const GHOST_BACKEND = BACKEND_URL;
 
 const DEXSCREENER = "https://api.dexscreener.com";
+const GECKOTERMINAL = "https://api.geckoterminal.com/api/v2";
 
 /** POST /api/debug-transaction */
 export async function decodeTransaction(input: string): Promise<any> {
-  const json = await API.decodeTransaction(input);
-  if (!json) throw new Error("Could not reach the ledger stream. Try again.");
-  return json;
+  try {
+    const res = await fetch(`${GHOST_BACKEND}/api/debug-transaction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ input }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error ?? `Backend error ${res.status}`);
+    return json;
+  } catch (e: any) {
+    throw new Error(e?.message ?? "Could not reach the ledger stream. Try again.");
+  }
 }
 
 /** GET /api/token-metrics?mint=... */
@@ -31,7 +41,16 @@ export async function fetchTokenMetrics(mint: string): Promise<{
   dex?: string;
   pairCreatedAt?: number | null;
 } | null> {
-  return API.getTokenMetrics(mint);
+  try {
+    const res = await fetch(
+      `${GHOST_BACKEND}/api/token-metrics?mint=${encodeURIComponent(mint)}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 export type ResolvedTicker = {
@@ -49,35 +68,13 @@ export type ResolvedTicker = {
 };
 
 /**
- * Resolve a bare ticker (e.g. "FART", "$BONK") to a Solana mint. Tries the
- * backend market search first, then falls back to the public DexScreener
- * search endpoint.
+ * Resolve a bare ticker (e.g. "FART", "$BONK", "FLAG") to a Solana mint by
+ * picking the most-liquid pair from the free DexScreener search endpoint.
+ * Returns null if no Solana pair exists.
  */
 export async function resolveTicker(query: string): Promise<ResolvedTicker | null> {
   const q = query.trim().replace(/^\$/, "");
   if (!q) return null;
-
-  const backend = await API.searchMarkets(q);
-  const rows: any[] = Array.isArray(backend)
-    ? backend
-    : (backend?.markets ?? backend?.results ?? backend?.data ?? []);
-  const hit = rows.find((r) => r?.mint ?? r?.address);
-  if (hit) {
-    return {
-      address: String(hit.mint ?? hit.address),
-      symbol: hit.symbol,
-      name: hit.name,
-      image: hit.image ?? hit.imageUrl ?? hit.logoURI,
-      priceUsd: Number(hit.priceUsd ?? hit.price) || undefined,
-      change24h: Number(hit.change24h ?? hit.priceChange24h) || 0,
-      liquidityUsd: Number(hit.liquidityUsd ?? hit.liquidity) || undefined,
-      fdv: Number(hit.fdv ?? hit.marketCap) || undefined,
-      volume24h: Number(hit.volume24h ?? hit.volume) || undefined,
-      pairAddress: hit.pairAddress,
-      dex: hit.dex ?? hit.source,
-    };
-  }
-
   try {
     const res = await fetch(`${DEXSCREENER}/latest/dex/search?q=${encodeURIComponent(q)}`, {
       headers: { Accept: "application/json" },
@@ -87,6 +84,7 @@ export async function resolveTicker(query: string): Promise<ResolvedTicker | nul
     const pairs: any[] = Array.isArray(json?.pairs) ? json.pairs : [];
     const solPairs = pairs.filter((p) => p?.chainId === "solana" && p?.baseToken?.address);
     if (!solPairs.length) return null;
+    // Prefer the pair whose base symbol matches the ticker, then most-liquid.
     const upper = q.toUpperCase();
     solPairs.sort((a, b) => {
       const am = a.baseToken?.symbol?.toUpperCase() === upper ? 1 : 0;
@@ -115,41 +113,35 @@ export async function resolveTicker(query: string): Promise<ResolvedTicker | nul
 
 export type OhlcvPoint = { t: number; o: number; h: number; l: number; c: number; v: number };
 
-/** UI timeframe → backend `/api/v1/charts/ohlcv` timeframe. */
-const TF_MAP: Record<string, { tf: string; limit: number }> = {
-  "1m": { tf: "1m", limit: 60 },
-  "5m": { tf: "5m", limit: 72 },
-  "1h": { tf: "1h", limit: 48 },
-  "1D": { tf: "1h", limit: 24 },
-  "7D": { tf: "4h", limit: 42 },
-  "1M": { tf: "1d", limit: 30 },
+const TF_MAP: Record<string, { path: string; aggregate: number; limit: number }> = {
+  "1m":  { path: "minute", aggregate: 1,  limit: 60 },
+  "5m":  { path: "minute", aggregate: 5,  limit: 72 },
+  "1h":  { path: "hour",   aggregate: 1,  limit: 48 },
+  "1D":  { path: "hour",   aggregate: 1,  limit: 24 },
+  "7D":  { path: "hour",   aggregate: 4,  limit: 42 },
+  "1M":  { path: "day",    aggregate: 1,  limit: 30 },
 };
 
-/** GET /api/v1/charts/ohlcv — normalised to oldest → newest. */
-export async function fetchOhlcv(symbol: string, timeframe: string): Promise<OhlcvPoint[]> {
+/**
+ * GeckoTerminal OHLCV — free, no key. Requires a Solana pool address (the
+ * DexScreener `pairAddress` works). Returns oldest → newest.
+ */
+export async function fetchOhlcv(poolAddress: string, timeframe: string): Promise<OhlcvPoint[]> {
   const cfg = TF_MAP[timeframe] ?? TF_MAP["1D"];
-  const json = await API.getOhlcv(symbol, cfg.tf, cfg.limit);
-  const list: any[] = Array.isArray(json)
-    ? json
-    : (json?.candles ?? json?.data ?? json?.ohlcv ?? []);
-  return list
-    .map((r: any) => {
-      if (Array.isArray(r)) {
-        const t = Number(r[0]);
-        return { t: t < 1e12 ? t * 1000 : t, o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5] || 0 };
-      }
-      const t = Number(r.time ?? r.t ?? r.timestamp ?? 0);
-      return {
-        t: t < 1e12 ? t * 1000 : t,
-        o: Number(r.open ?? r.o) || 0,
-        h: Number(r.high ?? r.h) || 0,
-        l: Number(r.low ?? r.l) || 0,
-        c: Number(r.close ?? r.c) || 0,
-        v: Number(r.volume ?? r.v) || 0,
-      };
-    })
-    .filter((p) => Number.isFinite(p.c) && p.c > 0)
-    .sort((a, b) => a.t - b.t);
+  try {
+    const url = `${GECKOTERMINAL}/networks/solana/pools/${poolAddress}/ohlcv/${cfg.path}?aggregate=${cfg.aggregate}&limit=${cfg.limit}&currency=usd`;
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return [];
+    const json = await res.json().catch(() => null);
+    const list: any[] = json?.data?.attributes?.ohlcv_list ?? [];
+    // Each row: [timestamp, open, high, low, close, volume] — newest first.
+    return list
+      .map((r) => ({ t: Number(r[0]) * 1000, o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5] }))
+      .filter((p) => Number.isFinite(p.c))
+      .sort((a, b) => a.t - b.t);
+  } catch {
+    return [];
+  }
 }
 
 // ── Demo (paper) trading ──────────────────────────────────────────────────────
@@ -165,53 +157,96 @@ export type DemoAccount = {
 };
 
 export async function initDemoAccount(userId?: string): Promise<DemoAccount> {
-  const json = await (async () => {
-    try {
-      const res = await fetch(`${GHOST_BACKEND}/api/demo/initialize`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(userId ? { userId } : {}),
-      });
-      if (!res.ok) return null;
-      return await res.json();
-    } catch {
-      return null;
-    }
-  })();
+  try {
+    const res = await fetch(`${GHOST_BACKEND}/api/demo/initialize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(userId ? { userId } : {}),
+    });
+    if (!res.ok) throw new Error(`Backend ${res.status}`);
+    return await res.json();
+  } catch {
+    // Local fallback so the demo UI always renders.
+    return {
+      userId: userId ?? Math.random().toString(36).slice(2, 10),
+      balanceUsd: 1000,
+      portfolio: {},
+      trades: [],
+      createdAt: new Date().toISOString(),
+    };
+  }
+}
 
-  return {
-    userId: json?.userId ?? userId ?? Math.random().toString(36).slice(2, 10),
-    balanceUsd: Number(json?.balanceUsd ?? 1000),
-    portfolio: json?.portfolio ?? {},
-    trades: json?.trades ?? [],
-    createdAt: json?.createdAt ?? new Date().toISOString(),
+/** Immutably apply a trade to an account (used as an offline fallback). */
+export function applyTradeLocally(
+  account: DemoAccount,
+  input: { action: "buy" | "sell"; mint: string; symbol: string; amount: number; priceUsd: number },
+): { ok: boolean; error?: string; account: DemoAccount } {
+  const totalUsd = +(input.amount * input.priceUsd).toFixed(6);
+  const held = account.portfolio[input.mint] ?? 0;
+  const next: DemoAccount = {
+    ...account,
+    balanceUsd: account.balanceUsd,
+    portfolio: { ...account.portfolio },
+    trades: [...account.trades],
   };
+  if (input.action === "buy") {
+    if (next.balanceUsd < totalUsd) return { ok: false, error: "Insufficient demo balance", account };
+    next.balanceUsd = +(next.balanceUsd - totalUsd).toFixed(6);
+    next.portfolio[input.mint] = +(held + input.amount).toFixed(9);
+  } else {
+    if (held < input.amount) return { ok: false, error: "Insufficient token holdings to sell", account };
+    next.balanceUsd = +(next.balanceUsd + totalUsd).toFixed(6);
+    const remaining = +(held - input.amount).toFixed(9);
+    if (remaining === 0) delete next.portfolio[input.mint];
+    else next.portfolio[input.mint] = remaining;
+  }
+  next.trades.push({
+    id: Math.random().toString(36).slice(2, 10),
+    action: input.action,
+    mint: input.mint,
+    symbol: input.symbol.toUpperCase(),
+    amount: input.amount,
+    priceUsd: input.priceUsd,
+    totalUsd,
+    timestamp: new Date().toISOString(),
+  });
+  return { ok: true, account: next };
 }
 
 export async function submitDemoTrade(
   account: DemoAccount,
   input: { action: "buy" | "sell"; mint: string; symbol: string; amount: number; priceUsd: number },
-): Promise<{ ok: boolean; error?: string; account: DemoAccount }> {
+): Promise<{ ok: boolean; error?: string; account: DemoAccount; source: "backend" | "local" }> {
+  const payload = { userId: account.userId, ...input };
   try {
     const res = await fetch(`${GHOST_BACKEND}/api/demo/trade`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ userId: account.userId, ...input }),
+      body: JSON.stringify(payload),
     });
     const json = await res.json().catch(() => ({} as any));
-    if (!res.ok) return { ok: false, error: json?.error ?? `Trade rejected (${res.status})`, account };
-
-    const src = json.account ?? json;
-    return {
-      ok: true,
-      account: {
+    if (res.ok && json?.account) {
+      // Merge server balances/portfolio with local trade log for a full history.
+      const local = applyTradeLocally(account, input);
+      const merged: DemoAccount = {
         ...account,
-        balanceUsd: Number(src.balanceUsd ?? account.balanceUsd),
-        portfolio: src.portfolio ?? account.portfolio,
-        trades: src.trades ?? account.trades,
-      },
-    };
+        balanceUsd: Number(json.account.balanceUsd) || local.account.balanceUsd,
+        portfolio: json.account.portfolio ?? local.account.portfolio,
+        trades: local.account.trades,
+      };
+      return { ok: true, account: merged, source: "backend" };
+    }
+    // Non-2xx (unknown user, 422, etc.) → simulate locally so the demo always works.
+    const local = applyTradeLocally(account, input);
+    return local.ok
+      ? { ok: true, account: local.account, source: "local" }
+      : { ok: false, error: local.error, account, source: "local" };
   } catch {
-    return { ok: false, error: "Trading engine unreachable. Try again.", account };
+    const local = applyTradeLocally(account, input);
+    return local.ok
+      ? { ok: true, account: local.account, source: "local" }
+      : { ok: false, error: local.error, account, source: "local" };
   }
 }
+

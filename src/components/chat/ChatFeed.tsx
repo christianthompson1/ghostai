@@ -97,7 +97,7 @@ export function ChatFeed({
                 onClick={isUser && !isEditing ? () => openMenu(m.id) : undefined}
                 className={`${
                   isUser
-                    ? "max-w-[85%] min-w-0 glass-pill px-4 py-2.5 text-sm chat-text whitespace-pre-wrap overflow-hidden cursor-pointer select-text"
+                    ? "max-w-[85%] min-w-0 glass-pill px-4 py-2.5 text-sm break-all whitespace-pre-wrap overflow-hidden cursor-pointer select-text"
                     : "max-w-[95%] min-w-0 w-full flex flex-col gap-3 overflow-hidden"
                 } ${isMenuTarget ? "relative z-[60] ring-2 ring-[color:var(--sky)] shadow-[0_10px_45px_-8px_rgba(56,189,248,0.55)]" : ""}`}
               >
@@ -109,7 +109,7 @@ export function ChatFeed({
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
                         rows={Math.min(6, editValue.split("\n").length + 1)}
-                        className="w-full bg-transparent outline-none resize-none text-sm chat-text"
+                        className="w-full bg-transparent outline-none resize-none text-sm break-all [word-break:break-word]"
                       />
                       <div className="flex justify-end gap-2">
                         <button onClick={closeMenu} className="pill pill-danger active:scale-95">
@@ -121,7 +121,7 @@ export function ChatFeed({
                       </div>
                     </div>
                   ) : (
-                    <span className="block chat-text whitespace-pre-wrap overflow-hidden max-w-full">
+                    <span className="block break-all whitespace-pre-wrap overflow-hidden max-w-full [word-break:break-word]">
                       {m.parts[0]?.text ?? ""}
                     </span>
                   )
