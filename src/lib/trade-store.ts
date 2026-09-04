@@ -7,6 +7,7 @@
  * portfolio is mirrored to the backend engine (best-effort, never blocking).
  */
 import { apiGet, apiPost } from "./api";
+import { TOP_SOLANA_TOKENS } from "./market-data";
 
 const KEY = "ghost.paper.v1";
 export const START_CASH = 1000;
@@ -180,7 +181,8 @@ function coerceMarket(r: any): MarketRow | null {
 
 /** GET /api/v1/markets — live CEX + DEX ticker feed. */
 export async function fetchMarkets(): Promise<MarketRow[]> {
-  const json = await apiGet<any>("/api/v1/markets");
+  const mints = TOP_SOLANA_TOKENS.map((token) => token.mint).join(",");
+  const json = await apiGet<any>(`/api/v1/markets?mints=${encodeURIComponent(mints)}`);
   const list: any[] = Array.isArray(json)
     ? json
     : Array.isArray(json?.markets)
@@ -189,6 +191,33 @@ export async function fetchMarkets(): Promise<MarketRow[]> {
         ? json.data
         : [];
   return list.map(coerceMarket).filter((r): r is MarketRow => !!r && r.priceUsd > 0);
+}
+
+export type VenueDepth = {
+  venue: string;
+  pairAddress?: string;
+  priceUsd: number;
+  liquidityUsd: number;
+  volume24h: number;
+  buys24h: number;
+  sells24h: number;
+  buyPressurePct: number | null;
+  liquiditySharePct: number | null;
+};
+
+export type MarketOrderBook = {
+  mint: string;
+  timestamp: string;
+  priceUsd: number;
+  change24h: number;
+  liquidityUsd: number;
+  venueCount: number;
+  venues: VenueDepth[];
+};
+
+/** GET /api/v1/markets/:mint/orderbook — live venue depth and trade flow. */
+export async function fetchMarketOrderBook(mint: string): Promise<MarketOrderBook | null> {
+  return apiGet<MarketOrderBook>(`/api/v1/markets/${encodeURIComponent(mint)}/orderbook`);
 }
 
 /** DexScreener search fallback so the drawer always finds a market. */
