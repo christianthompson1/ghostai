@@ -1,12 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, Search, TrendingUp, TrendingDown, Wallet, X, RefreshCw, CandlestickChart,
+  Activity, ArrowDown, ArrowLeft, ArrowUp, BarChart3, BookOpen, CandlestickChart,
+  Radio, RefreshCw, Search, TrendingDown, TrendingUp, Wallet, X,
 } from "lucide-react";
 import {
-  applyTrade, emptyState, fetchMarkets, fetchPricesForMints, loadState, saveState,
-  searchMarkets, syncTradeToBackend, START_CASH,
-  type MarketRow, type PaperState,
+  applyTrade, emptyState, fetchMarketOrderBook, fetchMarkets, fetchPricesForMints,
+  loadState, marketStreamUrl, saveState, searchMarkets, syncTradeToBackend, START_CASH,
+  type MarketOrderBook, type MarketRow, type MarketStreamEvent, type PaperState,
 } from "@/lib/trade-store";
 
 export const Route = createFileRoute("/_authenticated/trade")({
@@ -43,6 +44,13 @@ function TradePage() {
   const [searching, setSearching] = useState(false);
   const [amount, setAmount] = useState("50");
   const [notice, setNotice] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState<"info" | "orderbook" | "feed">("info");
+  const [orderBook, setOrderBook] = useState<MarketOrderBook | null>(null);
+  const [orderBookLoading, setOrderBookLoading] = useState(false);
+  const [marketUpdatedAt, setMarketUpdatedAt] = useState<string | null>(null);
+  const [feed, setFeed] = useState<MarketFeedItem[]>([]);
+  const streamConnected = useRef(false);
+  const lastSnapshot = useRef("");
 
   // ── Restore persisted portfolio ────────────────────────────────────────────
   useEffect(() => {
@@ -54,24 +62,79 @@ function TradePage() {
     setState(saveState(next));
   }, []);
 
-  // ── Live market feed (backend engine, refreshed every 5s) ──────────────────
+  const applyMarketSnapshot = useCallback((rows: MarketRow[], timestamp = new Date().toISOString()) => {
+    if (!rows.length) return;
+    const snapshot = JSON.stringify(rows.map((row) => [row.mint, row.priceUsd, row.change24h]));
+    if (snapshot === lastSnapshot.current) return;
+    lastSnapshot.current = snapshot;
+    setMarkets(rows);
+    setPrices((p) => {
+      const next = { ...p };
+      rows.forEach((r) => { next[r.mint] = r.priceUsd; });
+      return next;
+    });
+    setSelected((s) => s ?? rows[0]);
+    setMarketUpdatedAt(timestamp);
+    const focus = selected ? rows.find((row) => row.mint === selected.mint) : rows[0];
+    setFeed((items) => [{
+      id: `${timestamp}-${snapshot.slice(0, 12)}`,
+      timestamp,
+      symbol: focus?.symbol ?? `${rows.length} markets`,
+      priceUsd: focus?.priceUsd ?? 0,
+      change24h: focus?.change24h ?? 0,
+      venue: focus?.venue ?? "LIVE STREAM",
+      marketCount: rows.length,
+    }, ...items].slice(0, 30));
+  }, [selected]);
+
+  // ── Live market feed (SSE first, polling fallback) ──────────────────────────
   useEffect(() => {
     let cancelled = false;
     async function tick() {
+      if (streamConnected.current) return;
       const rows = await fetchMarkets();
-      if (cancelled || !rows.length) return;
-      setMarkets(rows);
-      setPrices((p) => {
-        const next = { ...p };
-        rows.forEach((r) => { next[r.mint] = r.priceUsd; });
-        return next;
-      });
-      setSelected((s) => s ?? rows[0]);
+      if (!cancelled) applyMarketSnapshot(rows);
     }
     tick();
     const id = setInterval(tick, 5000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [applyMarketSnapshot]);
+
+  useEffect(() => {
+    if (!markets.length || typeof EventSource === "undefined") return;
+    const source = new EventSource(marketStreamUrl(markets.map((market) => market.mint)));
+    source.onopen = () => { streamConnected.current = true; };
+    source.addEventListener("market_update", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as MarketStreamEvent;
+        applyMarketSnapshot(payload.markets, payload.timestamp);
+      } catch {
+        /* The polling fallback remains active for malformed stream events. */
+      }
+    });
+    source.onerror = () => {
+      streamConnected.current = false;
+      source.close();
+    };
+    return () => {
+      streamConnected.current = false;
+      source.close();
+    };
+  }, [markets.length, applyMarketSnapshot]);
+
+  useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    async function loadOrderBook() {
+      setOrderBookLoading(true);
+      const next = await fetchMarketOrderBook(selected.mint);
+      if (!cancelled && next) setOrderBook(next);
+      if (!cancelled) setOrderBookLoading(false);
+    }
+    loadOrderBook();
+    const id = setInterval(loadOrderBook, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [selected?.mint]);
 
   // ── Live prices for anything we hold or watch (every 4s) ───────────────────
   const heldMints = useMemo(() => Object.keys(state.positions), [state.positions]);
