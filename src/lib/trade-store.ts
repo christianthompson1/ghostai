@@ -6,7 +6,7 @@
  * between tabs or refreshes the browser. When the user is signed in the
  * portfolio is mirrored to the backend engine (best-effort, never blocking).
  */
-import { apiGet, apiPost } from "./api";
+import { apiGet, apiPost, backendUrl } from "./api";
 import { TOP_SOLANA_TOKENS } from "./market-data";
 
 const KEY = "ghost.paper.v1";
@@ -212,12 +212,26 @@ export type MarketOrderBook = {
   change24h: number;
   liquidityUsd: number;
   venueCount: number;
+  bestBid: number;
+  bestAsk: number;
+  bidDepthUsd: number;
+  askDepthUsd: number;
   venues: VenueDepth[];
+};
+
+export type MarketStreamEvent = {
+  type: "market_update";
+  timestamp: string;
+  markets: MarketRow[];
 };
 
 /** GET /api/v1/markets/:mint/orderbook — live venue depth and trade flow. */
 export async function fetchMarketOrderBook(mint: string): Promise<MarketOrderBook | null> {
   return apiGet<MarketOrderBook>(`/api/v1/markets/${encodeURIComponent(mint)}/orderbook`);
+}
+
+export function marketStreamUrl(mints: string[]): string {
+  return backendUrl(`/api/v1/markets/stream?mints=${encodeURIComponent(mints.join(","))}`);
 }
 
 /** DexScreener search fallback so the drawer always finds a market. */

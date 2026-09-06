@@ -1,12 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, Search, TrendingUp, TrendingDown, Wallet, X, RefreshCw, CandlestickChart,
+  Activity, ArrowDown, ArrowLeft, ArrowUp, BarChart3, BookOpen, CandlestickChart,
+  Radio, RefreshCw, Search, TrendingDown, TrendingUp, Wallet, X,
 } from "lucide-react";
 import {
-  applyTrade, emptyState, fetchMarkets, fetchPricesForMints, loadState, saveState,
-  searchMarkets, syncTradeToBackend, START_CASH,
-  type MarketRow, type PaperState,
+  applyTrade, emptyState, fetchMarketOrderBook, fetchMarkets, fetchPricesForMints,
+  loadState, marketStreamUrl, saveState, searchMarkets, syncTradeToBackend, START_CASH,
+  type MarketOrderBook, type MarketRow, type MarketStreamEvent, type PaperState,
 } from "@/lib/trade-store";
 
 export const Route = createFileRoute("/_authenticated/trade")({
@@ -31,6 +32,26 @@ function usd(n: number, digits = 2) {
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: max })}`;
 }
 
+type MarketFeedItem = {
+  id: string;
+  timestamp: string;
+  symbol: string;
+  priceUsd: number;
+  change24h: number;
+  venue: string;
+  marketCount: number;
+};
+
+function timeLabel(value: string | null) {
+  if (!value) return "Waiting for stream";
+  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function compactUsd(value: number) {
+  if (!Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 2 }).format(value);
+}
+
 function TradePage() {
   const [state, setState] = useState<PaperState>(() => emptyState());
   const [hydrated, setHydrated] = useState(false);
@@ -43,6 +64,13 @@ function TradePage() {
   const [searching, setSearching] = useState(false);
   const [amount, setAmount] = useState("50");
   const [notice, setNotice] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState<"info" | "orderbook" | "feed">("info");
+  const [orderBook, setOrderBook] = useState<MarketOrderBook | null>(null);
+  const [orderBookLoading, setOrderBookLoading] = useState(false);
+  const [marketUpdatedAt, setMarketUpdatedAt] = useState<string | null>(null);
+  const [feed, setFeed] = useState<MarketFeedItem[]>([]);
+  const streamConnected = useRef(false);
+  const lastSnapshot = useRef("");
 
   // ── Restore persisted portfolio ────────────────────────────────────────────
   useEffect(() => {
@@ -54,24 +82,79 @@ function TradePage() {
     setState(saveState(next));
   }, []);
 
-  // ── Live market feed (backend engine, refreshed every 5s) ──────────────────
+  const applyMarketSnapshot = useCallback((rows: MarketRow[], timestamp = new Date().toISOString()) => {
+    if (!rows.length) return;
+    const snapshot = JSON.stringify(rows.map((row) => [row.mint, row.priceUsd, row.change24h]));
+    if (snapshot === lastSnapshot.current) return;
+    lastSnapshot.current = snapshot;
+    setMarkets(rows);
+    setPrices((p) => {
+      const next = { ...p };
+      rows.forEach((r) => { next[r.mint] = r.priceUsd; });
+      return next;
+    });
+    setSelected((s) => s ?? rows[0]);
+    setMarketUpdatedAt(timestamp);
+    const focus = selected ? rows.find((row) => row.mint === selected.mint) : rows[0];
+    setFeed((items) => [{
+      id: `${timestamp}-${snapshot.slice(0, 12)}`,
+      timestamp,
+      symbol: focus?.symbol ?? `${rows.length} markets`,
+      priceUsd: focus?.priceUsd ?? 0,
+      change24h: focus?.change24h ?? 0,
+      venue: focus?.venue ?? "LIVE STREAM",
+      marketCount: rows.length,
+    }, ...items].slice(0, 30));
+  }, [selected]);
+
+  // ── Live market feed (SSE first, polling fallback) ──────────────────────────
   useEffect(() => {
     let cancelled = false;
     async function tick() {
+      if (streamConnected.current) return;
       const rows = await fetchMarkets();
-      if (cancelled || !rows.length) return;
-      setMarkets(rows);
-      setPrices((p) => {
-        const next = { ...p };
-        rows.forEach((r) => { next[r.mint] = r.priceUsd; });
-        return next;
-      });
-      setSelected((s) => s ?? rows[0]);
+      if (!cancelled) applyMarketSnapshot(rows);
     }
     tick();
     const id = setInterval(tick, 5000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [applyMarketSnapshot]);
+
+  useEffect(() => {
+    if (!markets.length || typeof EventSource === "undefined") return;
+    const source = new EventSource(marketStreamUrl(markets.map((market) => market.mint)));
+    source.onopen = () => { streamConnected.current = true; };
+    source.addEventListener("market_update", (event) => {
+      try {
+        const payload = JSON.parse((event as MessageEvent).data) as MarketStreamEvent;
+        applyMarketSnapshot(payload.markets, payload.timestamp);
+      } catch {
+        /* The polling fallback remains active for malformed stream events. */
+      }
+    });
+    source.onerror = () => {
+      streamConnected.current = false;
+      source.close();
+    };
+    return () => {
+      streamConnected.current = false;
+      source.close();
+    };
+  }, [markets.length, applyMarketSnapshot]);
+
+  useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    async function loadOrderBook() {
+      setOrderBookLoading(true);
+      const next = await fetchMarketOrderBook(selected.mint);
+      if (!cancelled && next) setOrderBook(next);
+      if (!cancelled) setOrderBookLoading(false);
+    }
+    loadOrderBook();
+    const id = setInterval(loadOrderBook, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [selected?.mint]);
 
   // ── Live prices for anything we hold or watch (every 4s) ───────────────────
   const heldMints = useMemo(() => Object.keys(state.positions), [state.positions]);
@@ -274,6 +357,88 @@ function TradePage() {
             ) : null}
           </section>
         </div>
+
+        <section className="glass rounded-2xl p-4 flex flex-col gap-4 min-w-0">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Live market workspace</p>
+              <h2 className="font-semibold text-lg">{selected?.symbol ?? "Market"} intelligence</h2>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className={`h-2 w-2 rounded-full ${streamConnected.current ? "bg-[oklch(0.7_0.18_150)]" : "bg-[oklch(0.7_0.18_70)]"}`} />
+              {streamConnected.current ? "Live stream" : "Polling fallback"}
+              <span>·</span>
+              <span>Updated {timeLabel(marketUpdatedAt)}</span>
+            </div>
+          </div>
+
+          <div className="flex gap-1 overflow-x-auto border-b border-white/20 pb-1" role="tablist" aria-label="Market workspace tabs">
+            {([
+              ["info", "Market Info", BarChart3],
+              ["orderbook", "Order Book", BookOpen],
+              ["feed", "Feed", Activity],
+            ] as const).map(([value, label, Icon]) => (
+              <button
+                key={value}
+                role="tab"
+                aria-selected={workspaceTab === value}
+                onClick={() => setWorkspaceTab(value)}
+                className={`btn-ghost shrink-0 ${workspaceTab === value ? "bg-[var(--accent)] text-[var(--foreground)]" : ""}`}
+              >
+                <Icon className="h-4 w-4" /> {label}
+              </button>
+            ))}
+          </div>
+
+          {workspaceTab === "info" ? (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3" role="tabpanel" aria-label="Market Info">
+              <MarketMetric label="Last price" value={usd(livePrice, 6)} sub={selected?.venue ?? "Live market"} />
+              <MarketMetric label="24h change" value={`${livePrice && selected && selected.change24h >= 0 ? "+" : ""}${selected?.change24h.toFixed(2) ?? "—"}%`} sub="Rolling session" tone={selected && selected.change24h >= 0 ? "up" : "down"} />
+              <MarketMetric label="24h volume" value={selected ? `$${compactUsd(selected.volume24h)}` : "—"} sub="Across tracked venue" />
+              <MarketMetric label="Liquidity" value={selected ? `$${compactUsd(selected.liquidityUsd)}` : "—"} sub={`${orderBook?.venueCount ?? 0} venues tracked`} />
+            </div>
+          ) : null}
+
+          {workspaceTab === "orderbook" ? (
+            <div role="tabpanel" aria-label="Order Book" className="flex flex-col gap-4">
+              {orderBookLoading && !orderBook ? (
+                <div className="grid sm:grid-cols-2 gap-3"><div className="shimmer-glass h-24 rounded-xl" /><div className="shimmer-glass h-24 rounded-xl" /></div>
+              ) : orderBook ? (
+                <>
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <MarketMetric label="Best bid" value={usd(orderBook.bestBid, 6)} sub="Highest venue quote" tone="up" />
+                    <MarketMetric label="Best ask" value={usd(orderBook.bestAsk, 6)} sub="Lowest venue quote" tone="down" />
+                    <MarketMetric label="Bid depth" value={`$${compactUsd(orderBook.bidDepthUsd)}`} sub="Buy-side liquidity" tone="up" />
+                    <MarketMetric label="Ask depth" value={`$${compactUsd(orderBook.askDepthUsd)}`} sub="Sell-side liquidity" tone="down" />
+                  </div>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    {orderBook.venues.map((venue) => (
+                      <div key={`${venue.venue}-${venue.pairAddress ?? venue.priceUsd}`} className="glass-pill !rounded-xl p-3 flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-3"><span className="font-semibold text-sm">{venue.venue}</span><span className="text-xs text-muted-foreground">{venue.liquiditySharePct?.toFixed(1) ?? "—"}% depth</span></div>
+                        <div className="flex items-center justify-between text-xs tabular-nums"><span>{usd(venue.priceUsd, 6)}</span><span className="text-muted-foreground">${compactUsd(venue.liquidityUsd)} liquidity</span></div>
+                        <div className="h-1.5 rounded-full bg-[var(--muted)] overflow-hidden"><div className="h-full bg-[var(--sky)] transition-all duration-500" style={{ width: `${Math.min(100, venue.buyPressurePct ?? 50)}%` }} /></div>
+                        <div className="flex justify-between text-[10px] text-muted-foreground"><span>Buys {venue.buys24h.toLocaleString()}</span><span>Sells {venue.sells24h.toLocaleString()}</span></div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Venue depth updated {timeLabel(orderBook.timestamp)} · indicative quotes aggregated from live venue liquidity.</p>
+                </>
+              ) : <p className="text-sm text-muted-foreground">Order-book depth is waiting for a live venue response.</p>}
+            </div>
+          ) : null}
+
+          {workspaceTab === "feed" ? (
+            <div role="tabpanel" aria-label="Feed" className="flex flex-col gap-2 min-h-[180px]">
+              {feed.length ? feed.map((item) => (
+                <div key={item.id} className="glass-pill !rounded-xl px-3 py-2.5 flex items-center gap-3 animate-[feed-in_400ms_ease-out]">
+                  <span className="grid place-items-center h-8 w-8 rounded-full bg-[var(--accent)]"><Radio className="h-4 w-4 sky-text" /></span>
+                  <div className="min-w-0 flex-1"><div className="flex items-center gap-2 text-sm"><span className="font-semibold">{item.symbol}</span><span className="text-muted-foreground">market snapshot</span></div><p className="text-[11px] text-muted-foreground">{item.marketCount} markets · {item.venue} · {timeLabel(item.timestamp)}</p></div>
+                  <div className="text-right tabular-nums"><div className="text-sm font-semibold">{usd(item.priceUsd, 6)}</div><div className={`text-[11px] ${item.change24h >= 0 ? "text-[oklch(0.55_0.18_150)]" : "text-[color:var(--destructive)]"}`}>{item.change24h >= 0 ? "▲" : "▼"} {Math.abs(item.change24h).toFixed(2)}%</div></div>
+                </div>
+              )) : <div className="shimmer-glass h-16 rounded-xl" />}
+            </div>
+          ) : null}
+        </section>
 
         {/* Open positions */}
         <section className="glass rounded-2xl p-4 flex flex-col gap-3 min-w-0">
