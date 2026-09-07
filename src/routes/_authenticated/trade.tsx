@@ -146,14 +146,14 @@ function TradePage() {
     const mint = selected?.mint;
     if (!mint) return;
     let cancelled = false;
-    async function loadOrderBook() {
+    async function loadOrderBook(marketMint: string) {
       setOrderBookLoading(true);
-      const next = await fetchMarketOrderBook(mint);
+      const next = await fetchMarketOrderBook(marketMint);
       if (!cancelled && next) setOrderBook(next);
       if (!cancelled) setOrderBookLoading(false);
     }
-    loadOrderBook();
-    const id = setInterval(loadOrderBook, 5000);
+    loadOrderBook(mint);
+    const id = setInterval(() => { void loadOrderBook(mint); }, 5000);
     return () => { cancelled = true; clearInterval(id); };
   }, [selected?.mint]);
 
