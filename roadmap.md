@@ -1,0 +1,5 @@
+- [ ] Add switchable Demo / Real trading mode while preserving existing demo persistence.
+- [ ] Connect profile to an injected Solana wallet with live RPC balances, holdings, transfers, and confirmed transaction history.
+- [ ] Add real Jupiter-routed buy/sell signing and confirmation to the trade page, with backend execution logging and live refresh.
+- [ ] Replace backend placeholder market reads with live browser-side Solana/Jupiter market and venue-depth data.
+- [ ] Validate typecheck, build diagnostics, and preview flows.
