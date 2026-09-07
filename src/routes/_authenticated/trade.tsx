@@ -143,11 +143,12 @@ function TradePage() {
   }, [markets.length, applyMarketSnapshot]);
 
   useEffect(() => {
-    if (!selected) return;
+    const mint = selected?.mint;
+    if (!mint) return;
     let cancelled = false;
     async function loadOrderBook() {
       setOrderBookLoading(true);
-      const next = await fetchMarketOrderBook(selected.mint);
+      const next = await fetchMarketOrderBook(mint);
       if (!cancelled && next) setOrderBook(next);
       if (!cancelled) setOrderBookLoading(false);
     }
@@ -565,6 +566,28 @@ function StatCard({ label, value, sub, tone }: { label: string; value: string; s
         tone === "ok" ? "text-[oklch(0.55_0.18_150)]" : tone === "bad" ? "text-[color:var(--destructive)]" : ""
       }`}>{value}</span>
       {sub ? <span className="text-[11px] text-muted-foreground truncate">{sub}</span> : null}
+    </div>
+  );
+}
+
+function MarketMetric({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  tone?: "up" | "down";
+}) {
+  return (
+    <div className="glass-pill !rounded-xl p-3 flex flex-col gap-1 min-w-0">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground truncate">{label}</span>
+      <span className={`text-lg font-bold tabular-nums truncate ${
+        tone === "up" ? "text-[oklch(0.55_0.18_150)]" : tone === "down" ? "text-[color:var(--destructive)]" : ""
+      }`}>{value}</span>
+      <span className="text-[11px] text-muted-foreground truncate">{sub}</span>
     </div>
   );
 }
