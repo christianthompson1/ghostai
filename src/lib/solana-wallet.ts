@@ -7,12 +7,10 @@ import {
   LAMPORTS_PER_SOL,
   type ParsedAccountData,
   type ParsedTransactionWithMeta,
-  type Signer,
 } from "@solana/web3.js";
 import {
   createAssociatedTokenAccountInstruction,
   createTransferCheckedInstruction,
-  getAccount,
   getAssociatedTokenAddress,
   getMint,
 } from "@solana/spl-token";
@@ -68,8 +66,13 @@ export type JupiterQuote = {
 
 function provider(): WalletProvider | null {
   if (typeof window === "undefined") return null;
-  const candidate = (window as Window & { solana?: WalletProvider }).solana;
-  return candidate ?? null;
+  const browser = window as Window & {
+    solana?: WalletProvider;
+    phantom?: { solana?: WalletProvider };
+    backpack?: WalletProvider;
+    solflare?: WalletProvider;
+  };
+  return browser.phantom?.solana ?? browser.backpack ?? browser.solflare ?? browser.solana ?? null;
 }
 
 export function solanaConnection(): Connection {
@@ -191,8 +194,13 @@ export async function sendUsdc(address: string, destination: string, amount: num
   return signAndSend(transaction);
 }
 
-export async function getJupiterQuote(inputMint: string, amountBaseUnits: string, slippageBps = 50): Promise<JupiterQuote> {
-  const url = `${JUPITER}/swap/v1/quote?inputMint=${encodeURIComponent(inputMint)}&outputMint=${USDC_MINT}&amount=${encodeURIComponent(amountBaseUnits)}&slippageBps=${slippageBps}`;
+export async function getJupiterQuote(
+  inputMint: string,
+  outputMint: string,
+  amountBaseUnits: string,
+  slippageBps = 50,
+): Promise<JupiterQuote> {
+  const url = `${JUPITER}/swap/v1/quote?inputMint=${encodeURIComponent(inputMint)}&outputMint=${encodeURIComponent(outputMint)}&amount=${encodeURIComponent(amountBaseUnits)}&slippageBps=${slippageBps}`;
   const response = await fetch(url, { headers: { Accept: "application/json" } });
   if (!response.ok) throw new Error("No live route is available for this market.");
   return (await response.json()) as JupiterQuote;

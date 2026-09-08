@@ -2,23 +2,27 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, ArrowDown, ArrowLeft, ArrowUp, BarChart3, BookOpen, CandlestickChart,
-  Radio, RefreshCw, Search, TrendingDown, TrendingUp, Wallet, X,
+  Radio, RefreshCw, Search, TrendingDown, TrendingUp, Wallet, X, ShieldCheck,
 } from "lucide-react";
 import {
   applyTrade, emptyState, fetchMarketOrderBook, fetchMarkets, fetchPricesForMints,
   loadState, marketStreamUrl, saveState, searchMarkets, syncTradeToBackend, START_CASH,
   type MarketOrderBook, type MarketRow, type MarketStreamEvent, type PaperState,
 } from "@/lib/trade-store";
+import {
+  connectWallet, executeJupiterSwap, getJupiterQuote, loadWalletSnapshot, tokenDecimals,
+  USDC_MINT, type WalletSnapshot,
+} from "@/lib/solana-wallet";
 
 export const Route = createFileRoute("/_authenticated/trade")({
   ssr: false,
   component: TradePage,
   head: () => ({
     meta: [
-      { title: "Paper Trading Desk — Ghost AI" },
-      { name: "description", content: "Simulate Solana trades with a persistent $1,000 paper portfolio and live profit and loss." },
-      { property: "og:title", content: "Paper Trading Desk — Ghost AI" },
-      { property: "og:description", content: "Persistent paper positions, live PnL and candlestick charts across 100+ markets." },
+      { title: "Solana Trading Desk — Ghost AI" },
+      { name: "description", content: "Switch between persistent paper trading and wallet-signed Solana swaps with live market data." },
+      { property: "og:title", content: "Solana Trading Desk — Ghost AI" },
+      { property: "og:description", content: "Paper positions and wallet-signed Jupiter swaps across live Solana markets." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -53,6 +57,10 @@ function compactUsd(value: number) {
 }
 
 function TradePage() {
+  const [mode, setMode] = useState<"demo" | "real">("demo");
+  const [realWallet, setRealWallet] = useState("");
+  const [realSnapshot, setRealSnapshot] = useState<WalletSnapshot | null>(null);
+  const [realBusy, setRealBusy] = useState(false);
   const [state, setState] = useState<PaperState>(() => emptyState());
   const [hydrated, setHydrated] = useState(false);
   const [markets, setMarkets] = useState<MarketRow[]>([]);
@@ -71,6 +79,33 @@ function TradePage() {
   const [feed, setFeed] = useState<MarketFeedItem[]>([]);
   const streamConnected = useRef(false);
   const lastSnapshot = useRef("");
+
+  useEffect(() => {
+    const storedMode = window.localStorage.getItem("ghost.trade.mode");
+    const storedWallet = window.localStorage.getItem("ghost.wallet.address");
+    if (storedMode === "real") setMode("real");
+    if (storedWallet) setRealWallet(storedWallet);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("ghost.trade.mode", mode);
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "real" || !realWallet) { setRealSnapshot(null); return; }
+    let cancelled = false;
+    async function tick() {
+      try {
+        const next = await loadWalletSnapshot(realWallet);
+        if (!cancelled) setRealSnapshot(next);
+      } catch {
+        if (!cancelled) setNotice({ ok: false, msg: "Live wallet balance is unavailable" });
+      }
+    }
+    void tick();
+    const id = setInterval(() => { void tick(); }, 10000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [mode, realWallet]);
 
   // ── Restore persisted portfolio ────────────────────────────────────────────
   useEffect(() => {
@@ -210,7 +245,21 @@ function TradePage() {
   const livePrice = selected ? (prices[selected.mint] ?? selected.priceUsd) : 0;
   const est = Number(amount) / (livePrice || 1);
 
-  function trade(action: "buy" | "sell") {
+  async function connectRealWallet() {
+    setRealBusy(true);
+    try {
+      const address = await connectWallet();
+      setRealWallet(address);
+      window.localStorage.setItem("ghost.wallet.address", address);
+      setNotice({ ok: true, msg: "Wallet connected — ready for signing" });
+    } catch (error) {
+      setNotice({ ok: false, msg: error instanceof Error ? error.message : "Wallet connection was not completed" });
+    } finally {
+      setRealBusy(false);
+    }
+  }
+
+  async function trade(action: "buy" | "sell") {
     if (!selected) return;
     const usdAmount = Number(amount);
     if (!Number.isFinite(usdAmount) || usdAmount <= 0) {
@@ -218,6 +267,31 @@ function TradePage() {
       return;
     }
     const tokens = usdAmount / (livePrice || 1);
+    if (mode === "real") {
+      if (!realWallet) { setNotice({ ok: false, msg: "Connect a wallet before placing a real order" }); return; }
+      setRealBusy(true);
+      try {
+        let quote;
+        if (action === "buy") {
+          const baseUnits = Math.round(usdAmount * 1_000_000);
+          if (baseUnits <= 0) throw new Error("Enter a larger order amount");
+          quote = await getJupiterQuote(USDC_MINT, selected.mint, String(baseUnits));
+        } else {
+          const decimals = await tokenDecimals(selected.mint);
+          const baseUnits = Math.round(tokens * 10 ** decimals);
+          if (baseUnits <= 0) throw new Error("Enter a larger order amount");
+          quote = await getJupiterQuote(selected.mint, USDC_MINT, String(baseUnits));
+        }
+        const signature = await executeJupiterSwap(realWallet, quote);
+        setNotice({ ok: true, msg: `${action === "buy" ? "Buy" : "Sell"} confirmed · ${signature.slice(0, 12)}…` });
+        return;
+      } catch (error) {
+        setNotice({ ok: false, msg: error instanceof Error ? error.message : "The wallet order was not completed" });
+      } finally {
+        setRealBusy(false);
+      }
+      return;
+    }
     const input = {
       action, mint: selected.mint, symbol: selected.symbol,
       amount: +tokens.toFixed(9), priceUsd: livePrice,
@@ -252,34 +326,40 @@ function TradePage() {
               <ArrowLeft className="h-4 w-4" />
             </Link>
             <div className="min-w-0">
-              <h1 className="font-bold text-lg truncate">Paper Trading Desk</h1>
+            <h1 className="font-bold text-lg truncate">Solana Trading Desk</h1>
               <p className="text-xs text-muted-foreground truncate">
-                Persistent positions · live PnL · {markets.length || "…"} live markets
+                {mode === "real" ? "Wallet-signed Jupiter execution" : "Persistent paper positions"} · {markets.length || "…"} live markets
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setDrawer(true)} className="btn-glass text-sm">
+             <div className="glass-pill p-1 flex items-center gap-1" role="group" aria-label="Trading mode">
+               <button onClick={() => setMode("demo")} className={`pill px-3 py-2 ${mode === "demo" ? "pill-sky" : ""}`}>Demo</button>
+               <button onClick={() => setMode("real")} className={`pill px-3 py-2 ${mode === "real" ? "pill-ok" : ""}`}><ShieldCheck className="h-3 w-3" /> Real</button>
+             </div>
+             <button onClick={() => setDrawer(true)} className="btn-glass text-sm">
               <Search className="h-4 w-4" /> Markets
             </button>
-            <button onClick={resetDesk} className="btn-ghost text-sm" title="Reset paper desk">
+             <button onClick={resetDesk} disabled={mode === "real"} className="btn-ghost text-sm disabled:opacity-40" title="Reset paper desk">
               <RefreshCw className="h-4 w-4" />
             </button>
           </div>
         </header>
 
         {/* Portfolio stats */}
-        <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatCard label="Portfolio equity" value={usd(equity)} sub={`${totalPnl >= 0 ? "+" : ""}${totalPnlPct.toFixed(2)}% all-time`} tone={totalPnl >= 0 ? "ok" : "bad"} />
-          <StatCard label="Cash" value={usd(state.cash)} sub="Available to deploy" />
-          <StatCard label="Positions" value={usd(positionsValue)} sub={`${positions.length} open`} />
-          <StatCard
-            label="Unrealized PnL"
-            value={`${unrealized >= 0 ? "+" : "−"}${usd(Math.abs(unrealized))}`}
-            sub={`Realized ${usd(state.realizedPnl)}`}
-            tone={unrealized >= 0 ? "ok" : "bad"}
-          />
-        </section>
+         <section className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+           {mode === "demo" ? <>
+             <StatCard label="Portfolio equity" value={usd(equity)} sub={`${totalPnl >= 0 ? "+" : ""}${totalPnlPct.toFixed(2)}% all-time`} tone={totalPnl >= 0 ? "ok" : "bad"} />
+             <StatCard label="Cash" value={usd(state.cash)} sub="Available to deploy" />
+             <StatCard label="Positions" value={usd(positionsValue)} sub={`${positions.length} open`} />
+             <StatCard label="Unrealized PnL" value={`${unrealized >= 0 ? "+" : "−"}${usd(Math.abs(unrealized))}`} sub={`Realized ${usd(state.realizedPnl)}`} tone={unrealized >= 0 ? "ok" : "bad"} />
+           </> : <>
+             <StatCard label="SOL balance" value={realSnapshot ? `${realSnapshot.sol.toLocaleString(undefined, { maximumFractionDigits: 6 })} SOL` : "—"} sub="Confirmed RPC balance" />
+             <StatCard label="Token holdings" value={realSnapshot ? String(realSnapshot.tokens.length) : "—"} sub="Non-zero SPL assets" />
+             <StatCard label="Confirmed activity" value={realSnapshot ? String(realSnapshot.transactions.length) : "—"} sub="Recent transactions" />
+             <StatCard label="Execution" value={realWallet ? "Ready" : "Connect"} sub="Jupiter route + wallet signature" tone={realWallet ? "ok" : "bad"} />
+           </>}
+         </section>
 
         <div className="grid lg:grid-cols-[minmax(0,1fr)_340px] gap-4">
           {/* Chart */}
@@ -321,8 +401,10 @@ function TradePage() {
           <section className="glass rounded-2xl p-4 flex flex-col gap-3 h-fit">
             <div className="flex items-center gap-2">
               <Wallet className="h-4 w-4 sky-text" />
-              <span className="font-semibold">Trade ticket</span>
+               <span className="font-semibold">{mode === "real" ? "Live swap ticket" : "Paper trade ticket"}</span>
             </div>
+             {mode === "real" && !realWallet ? <button onClick={() => void connectRealWallet()} disabled={realBusy} className="btn-primary justify-center"><Wallet className="h-4 w-4" /> {realBusy ? "Connecting…" : "Connect wallet"}</button> : null}
+             {mode === "real" && realWallet ? <div className="pill pill-ok w-full justify-center font-mono">Wallet ready · {realWallet.slice(0, 6)}…{realWallet.slice(-4)}</div> : null}
             <button onClick={() => setDrawer(true)} className="glass-input w-full text-left text-sm flex items-center justify-between">
               <span className="truncate">{selected ? `${selected.symbol} — ${selected.venue}` : "Choose a market"}</span>
               <Search className="h-4 w-4 opacity-60" />
@@ -346,13 +428,14 @@ function TradePage() {
               ≈ {Number.isFinite(est) ? est.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "—"} {selected?.symbol ?? ""} @ {usd(livePrice, 2)}
             </p>
             <div className="grid grid-cols-2 gap-2">
-              <button onClick={() => trade("buy")} disabled={!selected} className="btn-primary justify-center disabled:opacity-50">
-                <TrendingUp className="h-4 w-4" /> Buy
+               <button onClick={() => void trade("buy")} disabled={!selected || realBusy} className="btn-primary justify-center disabled:opacity-50">
+                 <TrendingUp className="h-4 w-4" /> {realBusy ? "Signing…" : "Buy"}
               </button>
-              <button onClick={() => trade("sell")} disabled={!selected} className="btn-glass justify-center disabled:opacity-50">
+               <button onClick={() => void trade("sell")} disabled={!selected || realBusy} className="btn-glass justify-center disabled:opacity-50">
                 <TrendingDown className="h-4 w-4" /> Sell
               </button>
             </div>
+             {mode === "real" ? <p className="text-[11px] text-muted-foreground">Orders route through Jupiter and require approval in your connected wallet. No paper balance is used.</p> : null}
             {notice ? (
               <div className={`pill ${notice.ok ? "pill-ok" : "pill-danger"} w-full justify-center`}>{notice.msg}</div>
             ) : null}
