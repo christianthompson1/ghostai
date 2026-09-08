@@ -134,7 +134,7 @@ export async function loadWalletSnapshot(address: string): Promise<WalletSnapsho
     readTransactions(connection, owner),
   ]);
 
-  const tokens = tokenAccounts.value.map((account) => {
+  const tokens = tokenAccounts.value.map((account): WalletToken | null => {
     const parsed = parsedTokenAmount(account);
     const info = (account.account.data as ParsedAccountData).parsed?.info as { mint?: string } | undefined;
     if (!parsed || !info?.mint || parsed.amount === "0") return null;
