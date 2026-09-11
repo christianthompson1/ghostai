@@ -9,6 +9,7 @@ import { Router, type Request, type Response } from "express";
 import { tasksRouter } from "./tasks.js";
 import { defiRouter }  from "./defi.js";
 import { marketsRouter } from "./markets.js";
+import { tradesRouter } from "./trades.js";
 
 export const v1Router = Router();
 
@@ -16,6 +17,7 @@ export const v1Router = Router();
 v1Router.use("/", tasksRouter);   // /api/v1/tasks/*, /api/v1/worker/*
 v1Router.use("/", defiRouter);    // /api/v1/staking/*, /api/v1/lending/*, /api/v1/yield/*
 v1Router.use("/markets", marketsRouter); // /api/v1/markets + live venue depth
+v1Router.use("/trades", tradesRouter); // wallet-signed execution verification and audit log
 
 // ── Protocol directory ────────────────────────────────────────────────────────
 v1Router.get("/", (_req: Request, res: Response) => {
