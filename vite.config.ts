@@ -27,8 +27,8 @@ export default defineConfig({
     plugins: [{
       name: "ghost-server-wallet-boundary",
       enforce: "pre",
-      resolveId(source, _importer, options) {
-        if (options.environment?.name !== "nitro") return null;
+      resolveId(this, source) {
+        if (this.environment?.name !== "nitro") return null;
         if (source === "@/lib/solana-wallet") {
           return `${process.cwd()}/src/lib/solana-wallet.server-stub.ts`;
         }
