@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { apiGet, apiPost } from "@/lib/api";
-import type { WalletSnapshot } from "@/lib/solana-wallet";
+import type { WalletSnapshot } from "@/lib/solana-wallet-shared";
 
 const loadWalletModule = () => import("@/lib/solana-wallet");
 

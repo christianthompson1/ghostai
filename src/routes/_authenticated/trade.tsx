@@ -9,7 +9,7 @@ import {
   loadState, marketStreamUrl, saveState, searchMarkets, syncTradeToBackend, START_CASH,
   type MarketOrderBook, type MarketRow, type MarketStreamEvent, type PaperState,
 } from "@/lib/trade-store";
-import { USDC_MINT, type WalletSnapshot } from "@/lib/solana-wallet";
+import { USDC_MINT, type WalletSnapshot } from "@/lib/solana-wallet-shared";
 
 const loadWalletModule = () => import("@/lib/solana-wallet");
 

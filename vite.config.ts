@@ -19,6 +19,15 @@ export default defineConfig({
     resolve: {
       conditions: ["browser", "import"],
     },
+    environments: {
+      nitro: {
+        resolve: {
+          alias: {
+            "@/lib/solana-wallet": `${process.cwd()}/src/lib/solana-wallet.server-stub.ts`,
+          },
+        },
+      },
+    },
     server: {
       host: "0.0.0.0",
       port: 5000,
