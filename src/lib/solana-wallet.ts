@@ -15,10 +15,15 @@ import {
   getMint,
 } from "@solana/spl-token";
 import { TOP_SOLANA_TOKENS } from "@/lib/market-data";
+import {
+  USDC_MINT,
+  type WalletSnapshot,
+  type WalletToken,
+  type WalletTransaction,
+} from "@/lib/solana-wallet-shared";
 
 const RPC_URL = (import.meta.env.VITE_SOLANA_RPC_URL as string | undefined) || "https://api.mainnet-beta.solana.com";
 const JUPITER = "https://lite-api.jup.ag";
-export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 export type WalletProvider = {
   isPhantom?: boolean;
@@ -27,32 +32,6 @@ export type WalletProvider = {
   disconnect?: () => Promise<void>;
   signTransaction?: (transaction: Transaction | VersionedTransaction) => Promise<Transaction | VersionedTransaction>;
   signAndSendTransaction?: (transaction: Transaction | VersionedTransaction) => Promise<{ signature: string }>;
-};
-
-export type WalletToken = {
-  mint: string;
-  amount: number;
-  rawAmount: string;
-  decimals: number;
-  symbol?: string;
-  name?: string;
-  image?: string;
-};
-
-export type WalletTransaction = {
-  signature: string;
-  slot: number;
-  blockTime: number | null;
-  success: boolean;
-  feeSol: number;
-  programIds: string[];
-};
-
-export type WalletSnapshot = {
-  address: string;
-  sol: number;
-  tokens: WalletToken[];
-  transactions: WalletTransaction[];
 };
 
 export type JupiterQuote = {

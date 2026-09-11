@@ -9,10 +9,9 @@ import {
   loadState, marketStreamUrl, saveState, searchMarkets, syncTradeToBackend, START_CASH,
   type MarketOrderBook, type MarketRow, type MarketStreamEvent, type PaperState,
 } from "@/lib/trade-store";
-import {
-  connectWallet, executeJupiterSwap, getJupiterQuote, loadWalletSnapshot, tokenDecimals,
-  USDC_MINT, type WalletSnapshot,
-} from "@/lib/solana-wallet";
+import { USDC_MINT, type WalletSnapshot } from "@/lib/solana-wallet-shared";
+
+const loadWalletModule = () => import("@/lib/solana-wallet");
 
 export const Route = createFileRoute("/_authenticated/trade")({
   ssr: false,
@@ -96,6 +95,7 @@ function TradePage() {
     let cancelled = false;
     async function tick() {
       try {
+        const { loadWalletSnapshot } = await loadWalletModule();
         const next = await loadWalletSnapshot(realWallet);
         if (!cancelled) setRealSnapshot(next);
       } catch {
@@ -248,6 +248,7 @@ function TradePage() {
   async function connectRealWallet() {
     setRealBusy(true);
     try {
+      const { connectWallet } = await loadWalletModule();
       const address = await connectWallet();
       setRealWallet(address);
       window.localStorage.setItem("ghost.wallet.address", address);
@@ -271,6 +272,7 @@ function TradePage() {
       if (!realWallet) { setNotice({ ok: false, msg: "Connect a wallet before placing a real order" }); return; }
       setRealBusy(true);
       try {
+        const { executeJupiterSwap, getJupiterQuote, tokenDecimals } = await loadWalletModule();
         let quote;
         if (action === "buy") {
           const baseUnits = Math.round(usdAmount * 1_000_000);
