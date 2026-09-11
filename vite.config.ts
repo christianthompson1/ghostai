@@ -21,13 +21,20 @@ export default defineConfig({
     },
     environments: {
       nitro: {
-        resolve: {
-          alias: {
-            "@/lib/solana-wallet": `${process.cwd()}/src/lib/solana-wallet.server-stub.ts`,
-          },
-        },
+        resolve: {},
       },
     },
+    plugins: [{
+      name: "ghost-server-wallet-boundary",
+      enforce: "pre",
+      resolveId(source, _importer, options) {
+        if (options.environment?.name !== "nitro") return null;
+        if (source === "@/lib/solana-wallet") {
+          return `${process.cwd()}/src/lib/solana-wallet.server-stub.ts`;
+        }
+        return null;
+      },
+    }],
     server: {
       host: "0.0.0.0",
       port: 5000,
