@@ -6,10 +6,9 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { apiGet, apiPost } from "@/lib/api";
-import {
-  connectWallet, disconnectWallet, loadWalletSnapshot, sendSol, sendUsdc,
-  type WalletSnapshot,
-} from "@/lib/solana-wallet";
+import type { WalletSnapshot } from "@/lib/solana-wallet";
+
+const loadWalletModule = () => import("@/lib/solana-wallet");
 
 export const Route = createFileRoute("/_authenticated/profile")({
   ssr: false,
@@ -78,6 +77,7 @@ function ProfilePage() {
     if (!address) return;
     setSnapshotLoading(true);
     try {
+      const { loadWalletSnapshot } = await loadWalletModule();
       setSnapshot(await loadWalletSnapshot(address));
     } catch {
       setNotice({ ok: false, msg: "Live wallet data could not be loaded" });
@@ -89,6 +89,7 @@ function ProfilePage() {
   async function connect() {
     setWalletBusy(true);
     try {
+      const { connectWallet } = await loadWalletModule();
       const address = await connectWallet();
       setWallet(address);
       window.localStorage.setItem(WALLET_KEY, address);
@@ -105,6 +106,7 @@ function ProfilePage() {
   async function disconnect() {
     setWalletBusy(true);
     try {
+      const { disconnectWallet } = await loadWalletModule();
       await disconnectWallet();
     } finally {
       window.localStorage.removeItem(WALLET_KEY);
@@ -297,7 +299,10 @@ function ProfilePage() {
         <SendModal
           from={wallet}
           onClose={() => setSendOpen(false)}
-           onSend={(to, asset, amount) => asset === "SOL" ? sendSol(wallet, to, amount) : sendUsdc(wallet, to, amount)}
+           onSend={async (to, asset, amount) => {
+             const { sendSol, sendUsdc } = await loadWalletModule();
+             return asset === "SOL" ? sendSol(wallet, to, amount) : sendUsdc(wallet, to, amount);
+           }}
            onResult={(msg, ok) => { setNotice({ ok, msg }); setSendOpen(false); if (ok) void refreshSnapshot(); }}
         />
       ) : null}
