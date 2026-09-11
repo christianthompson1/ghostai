@@ -69,14 +69,31 @@ export interface AutoTradeSession {
   failReason?:  string;
 }
 
+export interface RealExecution {
+  wallet: string;
+  signature: string;
+  action: "buy" | "sell";
+  mint: string;
+  symbol: string;
+  inputMint: string;
+  outputMint: string;
+  inputAmount: string;
+  outputAmount: string;
+  priceUsd?: number;
+  confirmationStatus: string;
+  slot: number | null;
+  confirmedAt: string;
+}
+
 // ── In-memory working set ─────────────────────────────────────────────────────
 
 interface DbShape {
   accounts:   Record<string, DemoAccount>;
   autoTrades: Record<string, AutoTradeSession>;  // keyed by sessionId
+  executions: RealExecution[];
 }
 
-let db: DbShape = { accounts: {}, autoTrades: {} };
+let db: DbShape = { accounts: {}, autoTrades: {}, executions: [] };
 
 // ── Load from disk on startup ─────────────────────────────────────────────────
 
@@ -87,12 +104,13 @@ function loadDb(): void {
     const parsed = JSON.parse(raw) as Partial<DbShape>;
     db.accounts   = parsed.accounts   ?? {};
     db.autoTrades = parsed.autoTrades ?? {};
+    db.executions = parsed.executions ?? [];
     const acctCount  = Object.keys(db.accounts).length;
     const tradeCount = Object.keys(db.autoTrades).length;
     console.log(`[DB] Loaded ${acctCount} account(s), ${tradeCount} auto-trade session(s) from disk`);
   } catch (err) {
     console.warn("[DB] Could not load demo-db.json — starting fresh:", (err as Error).message);
-    db = { accounts: {}, autoTrades: {} };
+    db = { accounts: {}, autoTrades: {}, executions: [] };
   }
 }
 
@@ -144,6 +162,23 @@ export function saveAccount(account: DemoAccount): void {
 
 export function getAllAccounts(): DemoAccount[] {
   return Object.values(db.accounts);
+}
+
+export async function getSignatureStatus(signature: string): Promise<{ confirmationStatus?: string; err?: unknown; slot?: number } | null> {
+  const rpcUrl = process.env.HELIUS_RPC_URL || "https://api.mainnet-beta.solana.com";
+  const response = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method: "getSignatureStatuses", params: [[signature], { searchTransactionHistory: true }] }),
+  });
+  if (!response.ok) return null;
+  const json = await response.json() as { result?: { value?: Array<{ confirmationStatus?: string; err?: unknown; slot?: number } | null> } };
+  return json.result?.value?.[0] ?? null;
+}
+
+export function saveRealExecution(execution: RealExecution): void {
+  db.executions = [execution, ...db.executions.filter((item) => item.signature !== execution.signature)].slice(0, 500);
+  scheduleFlush();
 }
 
 // ── Auto-trade session API ────────────────────────────────────────────────────

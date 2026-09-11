@@ -17,6 +17,8 @@ import {
 import { TOP_SOLANA_TOKENS } from "@/lib/market-data";
 import {
   USDC_MINT,
+  type RpcMarketQuote,
+  type RpcOrderBook,
   type WalletSnapshot,
   type WalletToken,
   type WalletTransaction,
@@ -24,6 +26,8 @@ import {
 
 const RPC_URL = (import.meta.env.VITE_SOLANA_RPC_URL as string | undefined) || "https://api.mainnet-beta.solana.com";
 const JUPITER = "https://lite-api.jup.ag";
+const SOL_MINT = "So11111111111111111111111111111111111111112";
+const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
 export type WalletProvider = {
   isPhantom?: boolean;
@@ -112,7 +116,7 @@ export async function loadWalletSnapshot(address: string): Promise<WalletSnapsho
   const owner = new PublicKey(address);
   const [lamports, tokenAccounts, transactions] = await Promise.all([
     connection.getBalance(owner, "confirmed"),
-    connection.getParsedTokenAccountsByOwner(owner, { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") }, "confirmed"),
+    connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID }, "confirmed"),
     readTransactions(connection, owner),
   ]);
 
@@ -201,4 +205,99 @@ export async function executeJupiterSwap(address: string, quote: JupiterQuote): 
 export async function tokenDecimals(mint: string): Promise<number> {
   const info = await getMint(solanaConnection(), new PublicKey(mint), "confirmed");
   return info.decimals;
+}
+
+async function quote(inputMint: string, outputMint: string, amountBaseUnits: string): Promise<JupiterQuote> {
+  const response = await fetch(
+    `${JUPITER}/swap/v1/quote?inputMint=${encodeURIComponent(inputMint)}&outputMint=${encodeURIComponent(outputMint)}&amount=${encodeURIComponent(amountBaseUnits)}&slippageBps=50`,
+    { headers: { Accept: "application/json" } },
+  );
+  if (!response.ok) throw new Error("No executable Solana route is available for this market.");
+  return (await response.json()) as JupiterQuote;
+}
+
+function routeLabels(result: JupiterQuote): string[] {
+  return (result.routePlan ?? [])
+    .map((step) => step.swapInfo?.label ?? step.swapInfo?.ammKey ?? "AMM")
+    .filter((value, index, all) => all.indexOf(value) === index);
+}
+
+function quotePriceUsd(result: JupiterQuote, tokenDecimalsValue: number, inputIsToken: boolean): number {
+  const input = Number(result.inAmount);
+  const output = Number(result.outAmount);
+  if (!Number.isFinite(input) || !Number.isFinite(output) || input <= 0 || output <= 0) return 0;
+  return inputIsToken
+    ? (output / 1_000_000) / (input / 10 ** tokenDecimalsValue)
+    : (input / 1_000_000) / (output / 10 ** tokenDecimalsValue);
+}
+
+export async function fetchRpcMarketQuotes(
+  tokens: Array<{ mint: string; symbol: string; name: string; image?: string }>,
+): Promise<RpcMarketQuote[]> {
+  const connection = solanaConnection();
+  const slot = await connection.getSlot("confirmed");
+  const rows = await Promise.all(tokens.slice(0, 16).map(async (token) => {
+    try {
+      const decimals = token.mint === SOL_MINT ? 9 : await tokenDecimals(token.mint);
+      const amount = String(10 ** decimals);
+      const result = await quote(token.mint, USDC_MINT, amount);
+      const priceUsd = quotePriceUsd(result, decimals, true);
+      if (!priceUsd) return null;
+      return {
+        ...token,
+        priceUsd,
+        change24h: 0,
+        volume24h: 0,
+        liquidityUsd: 0,
+        venue: "Jupiter route",
+        slot,
+        source: "solana-rpc",
+      } satisfies RpcMarketQuote;
+    } catch {
+      return null;
+    }
+  }));
+  return rows.filter((row): row is RpcMarketQuote => row !== null);
+}
+
+export async function fetchRpcOrderBook(mint: string): Promise<RpcOrderBook> {
+  const connection = solanaConnection();
+  const slot = await connection.getSlot("confirmed");
+  const decimals = mint === SOL_MINT ? 9 : await tokenDecimals(mint);
+  const oneToken = String(10 ** decimals);
+  const buyNotional = 100;
+  const [buy, sell] = await Promise.all([
+    quote(USDC_MINT, mint, String(buyNotional * 1_000_000)),
+    quote(mint, USDC_MINT, oneToken),
+  ]);
+  const bestAsk = quotePriceUsd(buy, decimals, false);
+  const bestBid = quotePriceUsd(sell, decimals, true);
+  const priceUsd = bestBid > 0 && bestAsk > 0 ? (bestBid + bestAsk) / 2 : bestBid || bestAsk;
+  const routes = Array.from(new Set([...routeLabels(buy), ...routeLabels(sell)]));
+  return {
+    mint,
+    timestamp: new Date().toISOString(),
+    priceUsd,
+    change24h: 0,
+    liquidityUsd: 0,
+    venueCount: 1,
+    bestBid,
+    bestAsk,
+    bidDepthUsd: bestBid > 0 ? bestBid : 0,
+    askDepthUsd: buyNotional,
+    slot,
+    source: "solana-rpc",
+    venues: [{
+      venue: "Jupiter executable route",
+      priceUsd,
+      liquidityUsd: 0,
+      volume24h: 0,
+      buys24h: 0,
+      sells24h: 0,
+      buyPressurePct: null,
+      liquiditySharePct: null,
+      route: routes,
+      quoteNotionalUsd: buyNotional,
+    }],
+  };
 }
