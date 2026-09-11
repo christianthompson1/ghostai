@@ -13,6 +13,12 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    // Solana's browser client depends on packages that publish separate
+    // browser and worker entry points. Prefer the browser exports so the
+    // wallet chunk is never resolved through the worker condition set.
+    resolve: {
+      conditions: ["browser", "import"],
+    },
     server: {
       host: "0.0.0.0",
       port: 5000,
